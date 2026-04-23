@@ -18,7 +18,7 @@ dotenv.config({ path: join(process.cwd(), 'src/config/.env'), quiet: true });
 
 // Errores no controlados
 process.on("uncaughtException", (err) => {
-    logger.fatal({ err }, "uncaughtException — proceso terminado");
+    logger.fatal({ err }, "uncaughtException -> proceso terminado");
     process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
@@ -45,6 +45,11 @@ function extractUserQuery(body) {
     }
 }
 
+// Abreviar sessionId a los primeros 8 caracteres para los logs
+function sid(sessionId) {
+    return sessionId ? sessionId.slice(0, 8) : "--------";
+}
+
 
 function createMcpServer(relevantToolNames = null) {
     const server = new McpServer(
@@ -68,6 +73,9 @@ async function startMcpServer() {
 
         const app = express();
 
+        // Mapa de sesiones activas: sessionId -> { server, transport }
+        const sessions = new Map();
+
         app.use(cors({
             origin: '*',
             methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
@@ -76,86 +84,206 @@ async function startMcpServer() {
             credentials: false
         }));
 
-        app.options('/mcp', cors());
         app.use(express.json());
 
         app.get("/health", (req, res) => {
             res.json({ status: "ok" });
         });
 
-        app.get("/mcp", (req, res) => {
-            const server = createMcpServer();
-            
-            const tools = Object.entries(server._registeredTools).map(([name, tool]) => ({
-                name,
-                description: tool.description || "",
-                inputSchema: tool.inputSchema || { type: "object", properties: {} }
-            }));
-
-            logger.trace({ toolCount: tools.length }, "Descubrimiento de herramientas");
-
-            res.json({
-                name: "mcp-server1-prueba",
-                version: "1.0.0",
-                protocolVersion: "2026-11-05",
-                capabilities: {
-                    tools: { listChanged: true },
-                    prompts: { listChanged: true }
-                },
-                tools
-            });
-        });
-
-        app.post("/mcp", async (req, res) => {
-            const sessionId = randomUUID();
+        app.all("/mcp", async (req, res) => {
             const ip = req.ip;
-            let relevantToolNames = null;
+            const method = req.body?.method;
+            const incomingSessionId = req.headers["mcp-session-id"];
 
-            logger.info({ sessionId, ip }, "Agente conectado");
+            // ── [1/5] INIT -> initialize: crear sesion nueva ───────────────────
+            if (req.method === "POST" && method === "initialize") {
+                const sessionId = randomUUID();
+                const client = req.body?.params?.clientInfo?.name ?? "desconocido";
 
-            try {
-                const userQuery = extractUserQuery(req.body);
+                logger.info(
+                    { sid: sid(sessionId), ip, client },
+                    "[1/5] INIT -> Nueva sesion creada"
+                );
 
-                if (userQuery) {
-                    const shortQuery = userQuery.slice(0, 80);
-                    const relevantTools = await EmbeddingsService.findRelevantTools(userQuery, 4, 0.35);
+                try {
+                    const server = createMcpServer();
+                    const transport = new StreamableHTTPServerTransport({
+                        sessionIdGenerator: () => sessionId,
+                    });
 
-                    if (relevantTools.length > 0) {
-                        relevantToolNames = relevantTools.map(t => t.nombre);
+                    sessions.set(sessionId, { server, transport });
+
+                    const toolNames = Object.keys(server._registeredTools ?? {});
+                    logger.debug(
+                        { sid: sid(sessionId), total: toolNames.length, tools: toolNames },
+                        "[1/5] INIT -> Tools registradas en sesion"
+                    );
+
+                    await server.connect(transport);
+                    await transport.handleRequest(req, res, req.body);
+
+                    res.on("finish", () => {
                         logger.info(
-                            { sessionId, query: shortQuery, tools: relevantToolNames },
-                            "Tools seleccionadas por búsqueda semantica"
+                            { sid: sid(sessionId), status: res.statusCode },
+                            "[1/5] INIT -> sessionId enviado al cliente"
                         );
-                    } else {
-                        logger.warn(
-                            { sessionId, query: shortQuery },
-                            "Sin coincidencias semanticas — registrando todas las tools"
-                        );
-                    }
+                    });
+
+                } catch (err) {
+                    logger.error({ sid: sid(sessionId), err }, "[1/5] INIT -> ERROR en initialize");
+                    if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
                 }
-            } catch (err) {
-                logger.error({ sessionId, err }, "Error en busqueda semantica — usando todas las tools");
+
+                return;
             }
 
-            const server = createMcpServer(relevantToolNames);
-            const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            // ── DELETE -> cerrar sesion ────────────────────────────────────────
+            if (req.method === "DELETE") {
+                if (incomingSessionId && sessions.has(incomingSessionId)) {
+                    sessions.delete(incomingSessionId);
+                    logger.info(
+                        { sid: sid(incomingSessionId) },
+                        "[5/5] CLOSE -> Sesion cerrada y eliminada"
+                    );
+                }
+                return res.status(200).json({ status: "session closed" });
+            }
 
-            await server.connect(transport);
-            await transport.handleRequest(req, res, req.body);
+            // ── Peticiones con sesion existente ───────────────────────────────
+            if (incomingSessionId && sessions.has(incomingSessionId)) {
+                const { server, transport } = sessions.get(incomingSessionId);
 
-            res.on("finish", () => {
-                logger.info({ sessionId, statusCode: res.statusCode }, "Sesion finalizada");
-            });
-        });
+                // [2/5] READY -> cliente confirma que esta listo
+                if (method === "notifications/initialized") {
+                    logger.info(
+                        { sid: sid(incomingSessionId) },
+                        "[2/5] READY -> Cliente confirma conexion, sesion activa"
+                    );
+                }
 
-        app.delete("/mcp", (req, res) => {
-            logger.debug({ ip: req.ip }, "Sesión cerrada por el agente");
-            res.status(200).json({ status: "session closed" });
+                // [3/5] TOOLS -> cliente pide lista de herramientas
+                else if (method === "tools/list") {
+                    const toolNames = Object.keys(server._registeredTools ?? {});
+                    logger.info(
+                        { sid: sid(incomingSessionId), total: toolNames.length, tools: toolNames },
+                        "[3/5] TOOLS -> Enviando lista de herramientas al cliente"
+                    );
+                }
+
+                // [3/5] DISCO -> descubrimiento de prompts y resources
+                else if (method === "prompts/list" || method === "resources/list") {
+                    logger.debug(
+                        { sid: sid(incomingSessionId), method },
+                        "[3/5] DISCO -> Descubrimiento de capacidades del servidor"
+                    );
+                }
+
+                // [4/5] CALL -> cliente llama a una herramienta
+                else if (method === "tools/call") {
+                    const toolName = req.body?.params?.name ?? "desconocida";
+                    const start = Date.now();
+
+                    logger.info(
+                        { sid: sid(incomingSessionId), tool: toolName },
+                        "[4/5] CALL  -> Ejecutando herramienta"
+                    );
+
+                    // Busqueda semantica para filtrar tools relevantes
+                    try {
+                        const userQuery = extractUserQuery(req.body);
+                        if (userQuery) {
+                            const shortQuery = userQuery.slice(0, 80);
+                            const relevantTools = await EmbeddingsService.findRelevantTools(userQuery, 4, 0.35);
+
+                            if (relevantTools.length > 0) {
+                                const relevantToolNames = relevantTools.map(t => t.nombre);
+                                logger.debug(
+                                    { sid: sid(incomingSessionId), query: shortQuery, tools: relevantToolNames },
+                                    "[4/5] CALL  -> Tools relevantes por busqueda semantica"
+                                );
+                            } else {
+                                logger.warn(
+                                    { sid: sid(incomingSessionId), query: shortQuery },
+                                    "[4/5] CALL  -> Sin coincidencias semanticas, usando todas las tools"
+                                );
+                            }
+                        }
+                    } catch (err) {
+                        logger.error({ sid: sid(incomingSessionId), err }, "[4/5] CALL  -> Error en busqueda semantica");
+                    }
+
+                    try {
+                        await transport.handleRequest(req, res, req.body);
+
+                        res.on("finish", () => {
+                            const ms = Date.now() - start;
+                            logger.info(
+                                { sid: sid(incomingSessionId), tool: toolName, status: res.statusCode, ms },
+                                "[4/5] RESULT-> Herramienta ejecutada y respuesta enviada"
+                            );
+                        });
+                    } catch (err) {
+                        logger.error({ sid: sid(incomingSessionId), tool: toolName, err }, "[4/5] CALL  -> ERROR ejecutando herramienta");
+                        if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
+                    }
+
+                    return;
+                }
+
+                // Cualquier otro metodo del protocolo
+                else if (method) {
+                    logger.debug(
+                        { sid: sid(incomingSessionId), method },
+                        "[?]   PROTO -> Metodo de protocolo desconocido recibido"
+                    );
+                }
+
+                try {
+                    await transport.handleRequest(req, res, req.body);
+
+                    res.on("finish", () => {
+                        logger.debug(
+                            { sid: sid(incomingSessionId), method, status: res.statusCode },
+                            "      HTTP  -> Respuesta HTTP completada"
+                        );
+                    });
+                } catch (err) {
+                    logger.error({ sid: sid(incomingSessionId), method, err }, "ERROR -> Fallo al procesar peticion");
+                    if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
+                }
+
+                return;
+            }
+
+            // ── Sin sesion -> stateless (clientes simples sin init previo) ────
+            const sessionId = randomUUID();
+            logger.info(
+                { sid: sid(sessionId), method },
+                "[?]   STAT  -> Peticion sin sesion (modo stateless)"
+            );
+
+            try {
+                const server = createMcpServer();
+                const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+
+                await server.connect(transport);
+                await transport.handleRequest(req, res, req.body);
+
+                res.on("finish", () => {
+                    logger.debug(
+                        { sid: sid(sessionId), method, status: res.statusCode },
+                        "      HTTP  -> Respuesta stateless completada"
+                    );
+                });
+            } catch (err) {
+                logger.error({ sid: sid(sessionId), method, err }, "ERROR -> Fallo en peticion stateless");
+                if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
+            }
         });
 
         const port = process.env.PORT || 3000;
         app.listen(port, '0.0.0.0', () => {
-            logger.info({ port, env: process.env.NODE_ENV }, "Express + MCP iniciado");
+            logger.info({ port, env: process.env.NODE_ENV }, "Servidor MCP listo");
         });
 
     } else if (process.env.NODE_ENV === "development") {
