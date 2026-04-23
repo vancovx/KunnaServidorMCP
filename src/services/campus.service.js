@@ -1,5 +1,6 @@
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
+import logger from "../config/logger.js";
 
 // Sinónimos conocidos de edificios
 // Clave: código SIGUA → array de nombres alternativos (en minúsculas).
@@ -49,8 +50,15 @@ class _CampusService {
         const dir = buildingsDir ?? join(process.cwd(), "src", "data", "buildings");
         const start = Date.now();
 
+        logger.info({ dir }, "CampusService inicializando");
+
         // Leer todos los .json de la carpeta
         const files = (await readdir(dir)).filter(f => f.endsWith(".json")).sort();
+
+        logger.debug({ total: files.length }, "Archivos GeoJSON encontrados");
+
+        let loaded = 0;
+        let skipped = 0;
 
         for (const file of files) {
             try {
@@ -59,6 +67,8 @@ class _CampusService {
                 const feature = geojson.features?.[0];
 
                 if (!feature?.properties?.id) {
+                    logger.warn({ file }, "GeoJSON sin id en properties — ignorado");
+                    skipped++;
                     continue;
                 }
 
@@ -86,8 +96,10 @@ class _CampusService {
                 };
 
                 this.buildings.set(props.id, building);
+                loaded++;
             } catch (err) {
-                console.error(` [CampusService] Error cargando ${file}: ${err.message}`);
+                logger.error({ file, err }, "Error cargando GeoJSON");
+                skipped++;
             }
         }
 
@@ -95,8 +107,9 @@ class _CampusService {
         this._buildSearchIndex();
 
         this.isReady = true;
-        console.error(
-            `✅ [CampusService] ${this.buildings.size} edificios cargados en ${Date.now() - start}ms`
+        logger.info(
+            { loaded, skipped, ms: Date.now() - start },
+            "CampusService listo"
         );
     }
 
@@ -121,6 +134,8 @@ class _CampusService {
                 searchText: this._normalize(parts.join(" ")),
             });
         }
+
+        logger.debug({ total: this.searchIndex.length }, "Indice de busqueda construido");
     }
 
     // ─────────────────────────────────────────────────────────
@@ -139,11 +154,16 @@ class _CampusService {
         this._ensureReady();
 
         const normalized = this._normalize(query);
+        const start = Date.now();
 
         // 1. Intento exacto por código SIGUA
         //    "0014" o "14" → buscar con padding de ceros
         const codeMatch = this._matchByCode(normalized);
         if (codeMatch) {
+            logger.debug(
+                { query, matchType: "exact_code", id: codeMatch.id, ms: Date.now() - start },
+                "Busqueda de edificio completada"
+            );
             return [{
                 building: this._toPublic(codeMatch),
                 score: 1.0,
@@ -165,9 +185,23 @@ class _CampusService {
             }
         }
 
-        return results
-            .sort((a, b) => b.score - a.score)
-            .slice(0, limit);
+        const sorted = results.sort((a, b) => b.score - a.score).slice(0, limit);
+
+        if (sorted.length === 0) {
+            logger.warn({ query }, "Busqueda de edificio sin resultados");
+        } else {
+            logger.debug(
+                {
+                    query,
+                    results: sorted.length,
+                    best: { id: sorted[0].building.id, nombre: sorted[0].building.nombre, score: sorted[0].score, matchType: sorted[0].matchType },
+                    ms: Date.now() - start
+                },
+                "Busqueda de edificio completada"
+            );
+        }
+
+        return sorted;
     }
 
     /**
@@ -182,6 +216,13 @@ class _CampusService {
         // Normalizar: "14" → "0014"
         const padded = id.replace(/\D/g, "").padStart(4, "0");
         const building = this.buildings.get(padded);
+
+        if (!building) {
+            logger.warn({ id, padded }, "Edificio no encontrado por ID");
+        } else {
+            logger.debug({ id: padded, nombre: building.nombre }, "Edificio encontrado por ID");
+        }
+
         return building ? this._toPublic(building) : null;
     }
 
@@ -191,6 +232,9 @@ class _CampusService {
      */
     getAllBuildings() {
         this._ensureReady();
+
+        logger.debug({ total: this.buildings.size }, "Devolviendo todos los edificios");
+
         return Array.from(this.buildings.values()).map(b => this._toPublic(b));
     }
 
@@ -210,9 +254,18 @@ class _CampusService {
             distance_m: this._haversineDistance(lat, lon, b.center.lat, b.center.lon),
         }));
 
-        return results
-            .sort((a, b) => a.distance_m - b.distance_m)
-            .slice(0, limit);
+        const sorted = results.sort((a, b) => a.distance_m - b.distance_m).slice(0, limit);
+
+        logger.debug(
+            {
+                lat, lon,
+                results: sorted.length,
+                nearest: { id: sorted[0]?.building.id, nombre: sorted[0]?.building.nombre, distance_m: Math.round(sorted[0]?.distance_m) }
+            },
+            "Busqueda de edificios cercanos completada"
+        );
+
+        return sorted;
     }
 
 
@@ -280,13 +333,9 @@ class _CampusService {
     }
 
 
-    // ─────────────────────────────────────────────────────────
-    //  UTILIDADES
-    // ─────────────────────────────────────────────────────────
+    // Funciones varias
 
-    /**
-     * Normaliza texto: minúsculas, sin tildes, sin caracteres especiales.
-     */
+    // Normaliza texto: minúsculas, sin tildes, sin caracteres especiales.
     _normalize(text) {
         return text
             .toLowerCase()
@@ -297,10 +346,8 @@ class _CampusService {
             .trim();
     }
 
-    /**
-     * Devuelve la versión pública de un edificio (sin geometry que es muy pesada).
-     * La geometry se puede pedir aparte con getBuildingGeometry().
-     */
+    // Devuelve la versión pública de un edificio (sin geometry que es muy pesada).
+    // La geometry se puede pedir aparte con getBuildingGeometry().
     _toPublic(building) {
         return {
             id: building.id,
@@ -313,20 +360,21 @@ class _CampusService {
         };
     }
 
-    /**
-     * Devuelve la geometry GeoJSON de un edificio (para mapas).
-     * Separada de toPublic porque puede ser muy grande.
-     */
+    // Devuelve la geometry GeoJSON de un edificio (para mapas).
+    // Separada de toPublic porque puede ser muy grande.
     getBuildingGeometry(id) {
         this._ensureReady();
         const padded = id.replace(/\D/g, "").padStart(4, "0");
         const building = this.buildings.get(padded);
+
+        if (!building) {
+            logger.warn({ id, padded }, "Geometria no encontrada para el edificio");
+        }
+
         return building?.geometry ?? null;
     }
 
-    /**
-     * Distancia en metros entre dos puntos (fórmula de Haversine).
-     */
+    // Distancia en metros entre dos puntos (fórmula de Haversine).
     _haversineDistance(lat1, lon1, lat2, lon2) {
         const R = 6371000;
         const toRad = (deg) => (deg * Math.PI) / 180;
@@ -339,20 +387,23 @@ class _CampusService {
     }
 
     _ensureReady() {
-        if (!this.isReady) {s
+        if (!this.isReady) {
+            logger.error("CampusService usado antes de inicializar, llama a initialize() primero");
             throw new Error("[CampusService] No inicializado. Llama a initialize() primero.");
         }
     }
 
-    /**
-     * Stats para debugging y health checks.
-     */
+    // Stats para debugging y health checks.
     getStats() {
-        return {
+        const stats = {
             ready: this.isReady,
             total_buildings: this.buildings.size,
             buildings_with_synonyms: Array.from(this.buildings.values()).filter(b => b.synonyms.length > 0).length,
         };
+
+        logger.debug(stats, "CampusService stats");
+
+        return stats;
     }
 }
 

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { OpenApiMeasurements } from "../services/measurements.service.js";
+import logger from "../config/logger.js";
+
 
 
 // Schema reutilizable: colecciones IoT
@@ -88,10 +90,22 @@ const ALL_TOOLS = [
             })
         },
         handler: async ({ collection, device_id }) => {
+            if (device_id) {
+                // Si hay device_id → solo info general + magnitudes de ese dispositivo
+                const [info, magnitudes] = await Promise.all([
+                    OpenApiMeasurements.fetchOpenApiInfo(collection),
+                    OpenApiMeasurements.fetchOpenApiMagnitudes(collection, device_id)
+                ]);
+                return {
+                    content: [{ type: "text", text: JSON.stringify({ collection_info: info, magnitudes }, null, 2) }]
+                };
+            }
+
+            // Sin device_id → todo: info + lista de dispositivos + todas las magnitudes
             const [info, devices, magnitudes] = await Promise.all([
                 OpenApiMeasurements.fetchOpenApiInfo(collection),
                 OpenApiMeasurements.fetchOpenApiDevices(collection),
-                OpenApiMeasurements.fetchOpenApiMagnitudes(collection, device_id)
+                OpenApiMeasurements.fetchOpenApiMagnitudes(collection)
             ]);
             return {
                 content: [{ type: "text", text: JSON.stringify({ collection_info: info, devices, magnitudes }, null, 2) }]
@@ -222,18 +236,44 @@ const ALL_TOOLS = [
     },
 ];
 
+function withLogging(name, handler) {
+    return async (params) => {
+        const start = Date.now();
+        logger.info({ tool: name, params }, "Tool invocada");
+        try {
+            const result = await handler(params);
+            logger.info({ tool: name, ms: Date.now() - start }, "Tool completada");
+            return result;
+        } catch (err) {
+            logger.error({ tool: name, err }, "Tool fallida");
+            throw err;
+        }
+    };
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Registro de tools en el servidor MCP
 //  relevantToolNames = null  → registra las 4 tools (desarrollo / fallback)
 //  relevantToolNames = [...] → registra solo las indicadas (producción)
 // ─────────────────────────────────────────────────────────────────────────────
+let toolsLogged = false; // Flag para evitar logging repetitivo de herramientas registradas
+
 export function registerTools(server, relevantToolNames = null) {
     const toolsToRegister = relevantToolNames
         ? ALL_TOOLS.filter(t => relevantToolNames.includes(t.name))
         : ALL_TOOLS;
 
+    //Hacemos el debug solamente una vez para que no aparezca todo el rato el mensaje.
+    if (!toolsLogged) {
+        logger.debug(
+            { tools: toolsToRegister.map(t => t.name), filtered: relevantToolNames !== null },
+            "Tools registradas en el servidor MCP"
+        );
+        toolsLogged = true;
+    }
+
     for (const tool of toolsToRegister) {
-        server.registerTool(tool.name, tool.definition, tool.handler);
+        server.registerTool(tool.name, tool.definition, withLogging(tool.name, tool.handler));
     }
 }

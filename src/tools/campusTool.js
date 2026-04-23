@@ -1,6 +1,22 @@
 import { z } from "zod";
 import { CampusService } from "../services/campus.service.js";
+import logger from "../config/logger.js";
 
+// Wrapper de logging reutilizable (igual que en registerTool.js)
+function withLogging(name, handler) {
+    return async (params) => {
+        const start = Date.now();
+        logger.info({ tool: name, params }, "Tool invocada");
+        try {
+            const result = await handler(params);
+            logger.info({ tool: name, ms: Date.now() - start }, "Tool completada");
+            return result;
+        } catch (err) {
+            logger.error({ tool: name, err }, "Tool fallida");
+            throw err;
+        }
+    };
+}
 
 export function registerCampusTools(server) {
 
@@ -32,17 +48,18 @@ export function registerCampusTools(server) {
                 )
             })
         },
-        async ({ query, limit }) => {
+        withLogging("search-campus-buildings", async ({ query, limit }) => {
             const results = CampusService.searchBuildings(query, limit ?? 5);
 
             if (results.length === 0) {
                 // Si no hay resultados, devolver todos los edificios como sugerencia
                 const all = CampusService.getAllBuildings();
+                logger.warn({ query }, "Busqueda sin resultados, devolviendo todos los edificios");
                 return {
                     content: [{
                         type: "text",
                         text: JSON.stringify({
-                            message: `No se encontró ningún edificio que coincida con "${query}".`,
+                            message: `No se ha encontrado ningun edificio que coincida con "${query}".`,
                             sugerencia: "Estos son los edificios disponibles:",
                             edificios_disponibles: all.map(b => ({
                                 codigo_sigua: b.id,
@@ -72,8 +89,6 @@ export function registerCampusTools(server) {
                     }, null, 2)
                 }]
             };
-        }
+        })
     );
-
-
 }
