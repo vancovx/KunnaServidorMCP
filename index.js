@@ -7,13 +7,13 @@ import { registerPrompts } from "./src/prompts/registerPrompts.js";
 import { EmbeddingsService } from "./src/services/embeddings.service.js";
 import { registerCampusTools } from "./src/tools/campusTool.js";
 import { CampusService } from "./src/services/campus.service.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"; 
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"; 
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "crypto";
 import { join } from 'path';
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // No se como arreglar esto
 dotenv.config({ path: join(process.cwd(), 'src/config/.env'), quiet: true });
 
 // Errores no controlados
@@ -68,13 +68,21 @@ function createMcpServer(relevantToolNames = null) {
 async function startMcpServer() {
 
     await CampusService.initialize();
-    
+
     if (process.env.NODE_ENV === "production") {
 
         const app = express();
 
-        // Mapa de sesiones activas: sessionId -> { server, transport }
+        // Mapa de sesiones activas: sessionId -> { server, transport, lastActivity }
         const sessions = new Map();
+
+        // TTL de sesiones inactivas (1h) y frecuencia de limpieza (10min)
+        const SESSION_TTL_MS = 60 * 60 * 1000;
+        const SESSION_CLEANUP_MS = 10 * 60 * 1000;
+
+        // Heartbeat SSE para mantener vivos los streams de notificaciones
+        // (Postman/undici cortan streams idle a los ~60-120s)
+        const HEARTBEAT_MS = 20000;
 
         app.use(cors({
             origin: '*',
@@ -111,7 +119,7 @@ async function startMcpServer() {
                         sessionIdGenerator: () => sessionId,
                     });
 
-                    sessions.set(sessionId, { server, transport });
+                    sessions.set(sessionId, { server, transport, lastActivity: Date.now() });
 
                     const toolNames = Object.keys(server._registeredTools ?? {});
                     logger.debug(
@@ -121,6 +129,7 @@ async function startMcpServer() {
 
                     await server.connect(transport);
                     await transport.handleRequest(req, res, req.body);
+                    
 
                     res.on("finish", () => {
                         logger.info(
@@ -151,7 +160,48 @@ async function startMcpServer() {
 
             // ── Peticiones con sesion existente ───────────────────────────────
             if (incomingSessionId && sessions.has(incomingSessionId)) {
-                const { server, transport } = sessions.get(incomingSessionId);
+                const session = sessions.get(incomingSessionId);
+                const { server, transport } = session;
+
+                // Refrescar marca de actividad
+                session.lastActivity = Date.now();
+
+                // ── GET /mcp -> stream SSE de notificaciones servidor->cliente
+                //    Postman/undici matan streams idle, asi que mandamos
+                //    comentarios SSE periodicos para mantener viva la conexion.
+                if (req.method === "GET") {
+                    logger.info(
+                        { sid: sid(incomingSessionId) },
+                        "GET   -> Stream SSE de notificaciones abierto, iniciando heartbeat"
+                    );
+
+                    const heartbeat = setInterval(() => {
+                        if (!res.writableEnded && !res.destroyed) {
+                            try {
+                                res.write(": heartbeat\n\n");
+                            } catch (err) {
+                                logger.warn(
+                                    { sid: sid(incomingSessionId), err: err.message },
+                                    "GET   -> Heartbeat fallido, deteniendo intervalo"
+                                );
+                                clearInterval(heartbeat);
+                            }
+                        } else {
+                            clearInterval(heartbeat);
+                        }
+                    }, HEARTBEAT_MS);
+
+                    const cleanupHeartbeat = () => {
+                        clearInterval(heartbeat);
+                        logger.info(
+                            { sid: sid(incomingSessionId) },
+                            "GET   -> Stream SSE cerrado, heartbeat detenido"
+                        );
+                    };
+                    res.on("close", cleanupHeartbeat);
+                    res.on("finish", cleanupHeartbeat);
+                    req.on("close", cleanupHeartbeat);
+                }
 
                 // [2/5] READY -> cliente confirma que esta listo
                 if (method === "notifications/initialized") {
@@ -281,10 +331,38 @@ async function startMcpServer() {
             }
         });
 
+        // ── Limpieza periodica de sesiones inactivas ──────────────────────────
+        const cleanupInterval = setInterval(() => {
+            const now = Date.now();
+            let removed = 0;
+            for (const [sessionId, session] of sessions.entries()) {
+                if (now - (session.lastActivity ?? 0) > SESSION_TTL_MS) {
+                    sessions.delete(sessionId);
+                    removed++;
+                    logger.info(
+                        { sid: sid(sessionId) },
+                        "Sesion expirada por inactividad, eliminada"
+                    );
+                }
+            }
+            if (removed > 0) {
+                logger.debug({ removed, remaining: sessions.size }, "Cleanup de sesiones completado");
+            }
+        }, SESSION_CLEANUP_MS);
+        cleanupInterval.unref?.();
+
+        // ── Arranque del servidor HTTP con timeouts adecuados para SSE ────────
         const port = process.env.PORT || 3000;
-        app.listen(port, '0.0.0.0', () => {
+        const httpServer = app.listen(port, '0.0.0.0', () => {
             logger.info({ port, env: process.env.NODE_ENV }, "Servidor MCP listo");
         });
+
+        // Desactivar timeouts que cierran streams SSE de larga duracion.
+        // Por defecto Node mata peticiones a los 5min (requestTimeout).
+        httpServer.requestTimeout = 0;        // sin limite por peticion
+        httpServer.headersTimeout = 0;        // sin limite recibiendo headers
+        httpServer.keepAliveTimeout = 120000; // 2min de keep-alive entre peticiones
+        httpServer.timeout = 0;               // sin timeout de socket inactivo
 
     } else if (process.env.NODE_ENV === "development") {
         const server = createMcpServer();
