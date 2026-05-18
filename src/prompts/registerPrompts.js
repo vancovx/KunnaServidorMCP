@@ -3,51 +3,15 @@ import { z } from "zod";
 
 export function registerPrompts(server) {
 
-    server.registerPrompt(
-        "resumen-consumo",
-        {
-            description: "Genera un resumen rápido del consumo de un dispositivo.",
-            inputSchema: z.object({
-                device_id: z.string().describe("ID del dispositivo."),
-                horas: z.number().describe("Últimas X horas a analizar. Ej: 24, 48, 72.")
-            })
-        },
-        async (args) => {
-            console.error("Args recibidos:", JSON.stringify(args)); 
-
-            const device_id = args?.device_id ?? args?.arguments?.device_id ?? "sin_id";
-            const horas     = args?.horas     ?? args?.arguments?.horas     ?? 24;
-
-            return {
-                messages: [
-                    {
-                        role: "user",
-                        content: {
-                            type: "text",
-                            text: `Genera un resumen breve del dispositivo "${device_id}" 
-                                de las últimas ${horas} horas.
-
-                                Pasos:
-                                1. Usa "get-device-details" para saber qué es el dispositivo.
-                                2. Usa "query-aggregation" con last=${horas * 60}, operations="avg".
-                                3. Responde con: nombre del dispositivo, consumo medio, y una línea de conclusión.`
-                        }
-                    }
-                ]
-            };
-        }
-    );
-
-
     // ─────────────────────────────────────────────────────────────────────────
-    //  Informe mensual de electricidad de un edificio + detección de anomalías
+    //  1. Informe mensual de ELECTRICIDAD de un edificio + detección de anomalías
     // ─────────────────────────────────────────────────────────────────────────
     server.registerPrompt(
         "informe-electricidad-edificio-mensual",
         {
-            description: "Genera un informe exhaustivo del consumo eléctrico de un edificio durante un mes concreto, detecta anomalías y presenta los resultados de forma estructurada. Se puede identificar el edificio por código SIGUA o por alias (nombre).",
+            description: "Genera un informe exhaustivo del consumo eléctrico de un edificio durante un mes concreto, detecta anomalías y presenta los resultados de forma estructurada. Se puede identificar el edificio por código SIGUA, nombre oficial o descripción libre ('la poli', 'derecho', 'donde se imparte enfermería').",
             inputSchema: z.object({
-                edificio: z.string().describe("Identificador del edificio. Puede ser el código SIGUA (ej: '0025', '0038') o el alias/nombre del edificio (ej: 'Aulario 1', 'Politécnica II'). El sistema buscará coincidencias en ambos campos."),
+                edificio: z.string().describe("Identificador del edificio. Puede ser el código SIGUA (ej: '0025', '0038'), el nombre oficial ('Escuela Politécnica Superior I'), un nombre coloquial ('la poli', 'EPS', 'derecho') o una descripción libre ('donde se imparte informática'). El sistema usa búsqueda semántica para resolverlo."),
                 mes: z.string().describe("Mes a analizar en formato YYYY-MM (ej: '2025-06' para junio de 2025)."),
             })
         },
@@ -57,7 +21,6 @@ export function registerPrompts(server) {
             const edificio = args?.edificio ?? args?.arguments?.edificio ?? "sin_identificador";
             const mes      = args?.mes      ?? args?.arguments?.mes      ?? "2025-01";
 
-            // Calcular start y end del mes
             const [year, month] = mes.split("-");
             const start = `${year}-${month}-01T00:00:00.000Z`;
             const lastDay = new Date(Number(year), Number(month), 0).getDate();
@@ -73,15 +36,22 @@ export function registerPrompts(server) {
 
                                 Sigue estos pasos en orden estricto:
 
-                                ─── PASO 1: Identificar dispositivos del edificio ───
-                                Usa "search-buildings" con collection="energy" y query="${edificio}" para obtener los dispositivos del edificio.
-                                Si no encuentra resultados, prueba sin query para listar todos los edificios disponibles y sugiere las opciones más cercanas al usuario.
-                                Si no encuentras ningún dispositivo, informa al usuario con las opciones disponibles más parecidas y detente.
+                                ─── PASO 1: Identificar el edificio ───
+                                Usa "search-campus-buildings" con query="${edificio}" para resolver el identificador del usuario.
+                                - Si la búsqueda devuelve un único resultado con alta confianza (>80%), úsalo.
+                                - Si devuelve varios resultados, indica al usuario las opciones encontradas y elige la más probable; menciona explícitamente qué edificio has elegido y por qué.
+                                - Si no devuelve resultados, muestra al usuario las opciones disponibles y detente.
+                                Guarda el código SIGUA del edificio resuelto para los siguientes pasos.
 
-                                ─── PASO 2: Obtener metadatos ───
-                                Para cada dispositivo encontrado, usa "get-device-details" con collection="energy" para conocer su nombre, ubicación y tipo.
+                                ─── PASO 2: Identificar los contadores eléctricos del edificio ───
+                                Usa "discover-collection" con collection="energy" para obtener todos los dispositivos disponibles.
+                                Filtra los dispositivos que pertenezcan al edificio identificado en el paso 1 (busca coincidencias por código SIGUA en los metadatos, nombre o alias).
+                                Si no encuentras contadores asociados al edificio, indícalo y detente.
 
-                                ─── PASO 3: Obtener datos agregados diarios ───
+                                ─── PASO 3: Obtener metadatos de cada contador ───
+                                Para cada dispositivo encontrado, usa "get-device-details" con collection="energy" para conocer su alias, ubicación y tipo de medida.
+
+                                ─── PASO 4: Datos agregados diarios ───
                                 Para cada dispositivo, usa "query-aggregation" con:
                                 - collection = "energy"
                                 - device_id = (el ID del dispositivo)
@@ -91,23 +61,23 @@ export function registerPrompts(server) {
                                 - interval_minutes = 1440 (agrupación diaria)
                                 Repite con operations = "max" y operations = "min".
 
-                                ─── PASO 4: Obtener datos agregados horarios (para detectar anomalías) ───
+                                ─── PASO 5: Datos agregados horarios (para detectar anomalías) ───
                                 Usa "query-aggregation" con:
                                 - interval_minutes = 60 (agrupación horaria)
                                 - operations = "avg"
                                 - Mismo rango de fechas y dispositivos.
 
-                                ─── PASO 5: Generar el informe con esta estructura ───
+                                ─── PASO 6: Generar el informe con esta estructura ───
 
                                 ## 1. Datos del edificio
-                                - Código SIGUA, nombre del edificio, número de dispositivos/contadores encontrados.
-                                - Lista de dispositivos con su alias y ubicación.
+                                - Código SIGUA, nombre del edificio, número de contadores encontrados.
+                                - Lista de contadores con su alias y ubicación.
 
-                                ## 2. Resumen de consumo mensual
-                                - Consumo total estimado del edificio (suma de todos los dispositivos).
+                                ## 2. Resumen de consumo mensual (kWh)
+                                - Consumo total estimado del edificio (suma de todos los contadores).
                                 - Consumo medio diario.
                                 - Día de mayor consumo y día de menor consumo.
-                                - Tabla resumen por dispositivo: alias, consumo medio diario, máximo, mínimo.
+                                - Tabla resumen por contador: alias, consumo medio diario, máximo, mínimo.
 
                                 ## 3. Evolución diaria
                                 - Describe la tendencia del consumo a lo largo del mes.
@@ -124,15 +94,256 @@ export function registerPrompts(server) {
                                 c) **Días atípicos**: días cuyo consumo total se desvíe más de 1.5 desviaciones estándar de la media diaria.
                                 d) **Caídas a cero**: periodos donde el consumo cae a 0 durante horas laborables.
 
-                                Para cada anomalía encontrada indica: fecha/hora, dispositivo afectado, valor registrado, valor esperado y tipo de anomalía.
+                                Para cada anomalía indica: fecha/hora, contador afectado, valor registrado, valor esperado y tipo de anomalía.
                                 Si no se detectan anomalías, indícalo explícitamente.
 
                                 ## 6. Conclusiones y recomendaciones
                                 - Resumen ejecutivo del estado del consumo eléctrico del edificio.
                                 - Si hay anomalías, sugiere posibles causas y acciones.
-                                - Compara si el patrón es coherente con el uso esperado de un edificio universitario.
+                                - Valora si el patrón es coherente con el uso esperado de un edificio universitario.
 
-                                Importante: Presenta los datos de forma clara. Usa tablas cuando sea apropiado. Si algún paso falla o no devuelve datos, indícalo y continúa con los datos disponibles.`
+                                Importante: Presenta los datos de forma clara, usa tablas cuando sea apropiado. Si algún paso falla o no devuelve datos, indícalo y continúa con los datos disponibles.`
+                        }
+                    }
+                ]
+            };
+        }
+    );
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  2. Informe mensual de AGUA de un edificio + detección de anomalías
+    // ─────────────────────────────────────────────────────────────────────────
+    server.registerPrompt(
+        "informe-agua-edificio-mensual",
+        {
+            description: "Genera un informe exhaustivo del consumo de agua potable de un edificio durante un mes concreto, detecta posibles fugas y consumos anómalos. Se puede identificar el edificio por código SIGUA, nombre oficial o descripción libre.",
+            inputSchema: z.object({
+                edificio: z.string().describe("Identificador del edificio. Puede ser el código SIGUA (ej: '0025'), el nombre oficial, un nombre coloquial ('la poli', 'derecho') o una descripción libre ('donde se imparte enfermería'). El sistema usa búsqueda semántica para resolverlo."),
+                mes: z.string().describe("Mes a analizar en formato YYYY-MM (ej: '2025-06')."),
+            })
+        },
+        async (args) => {
+            console.error("Args recibidos (informe-agua):", JSON.stringify(args));
+
+            const edificio = args?.edificio ?? args?.arguments?.edificio ?? "sin_identificador";
+            const mes      = args?.mes      ?? args?.arguments?.mes      ?? "2025-01";
+
+            const [year, month] = mes.split("-");
+            const start = `${year}-${month}-01T00:00:00.000Z`;
+            const lastDay = new Date(Number(year), Number(month), 0).getDate();
+            const end = `${year}-${month}-${String(lastDay).padStart(2, "0")}T23:59:59.000Z`;
+
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text: `Eres un experto en gestión hídrica de edificios universitarios. Genera un informe exhaustivo del consumo de agua potable del edificio identificado como "${edificio}" durante el mes ${mes} (del ${start} al ${end}).
+
+                                Sigue estos pasos en orden estricto:
+
+                                ─── PASO 1: Identificar el edificio ───
+                                Usa "search-campus-buildings" con query="${edificio}" para resolver el identificador.
+                                - Si la búsqueda devuelve un único resultado con alta confianza, úsalo.
+                                - Si devuelve varios, indica las opciones, elige la más probable y justifica la elección.
+                                - Si no hay resultados, muestra los edificios disponibles y detente.
+                                Guarda el código SIGUA del edificio resuelto.
+
+                                ─── PASO 2: Identificar los contadores de agua del edificio ───
+                                Usa "discover-collection" con collection="water" para obtener los dispositivos disponibles.
+                                Filtra los dispositivos del edificio identificado (por código SIGUA, nombre o alias).
+                                Si no encuentras contadores asociados, indícalo y detente.
+
+                                ─── PASO 3: Obtener metadatos de cada contador ───
+                                Para cada dispositivo encontrado, usa "get-device-details" con collection="water" para conocer su alias, ubicación y tipo.
+
+                                ─── PASO 4: Datos agregados diarios ───
+                                Para cada dispositivo, usa "query-aggregation" con:
+                                - collection = "water"
+                                - device_id = (el ID del dispositivo)
+                                - start = "${start}"
+                                - end = "${end}"
+                                - operations = "avg"
+                                - interval_minutes = 1440 (agrupación diaria)
+                                Repite con operations = "max", "min" y "sum" para tener el total diario.
+
+                                ─── PASO 5: Datos agregados horarios (para detectar fugas) ───
+                                Usa "query-aggregation" con:
+                                - interval_minutes = 60 (agrupación horaria)
+                                - operations = "avg"
+                                - Mismo rango de fechas y dispositivos.
+
+                                ─── PASO 6: Generar el informe con esta estructura ───
+
+                                ## 1. Datos del edificio
+                                - Código SIGUA, nombre del edificio, número de contadores de agua encontrados.
+                                - Lista de contadores con su alias y ubicación.
+
+                                ## 2. Resumen de consumo mensual (litros / m³)
+                                - Consumo total estimado del edificio.
+                                - Consumo medio diario.
+                                - Día de mayor consumo y día de menor consumo.
+                                - Tabla resumen por contador: alias, consumo total mensual, medio diario, máximo, mínimo.
+
+                                ## 3. Evolución diaria
+                                - Describe la tendencia del consumo a lo largo del mes.
+                                - Identifica patrones (ej: bajada drástica en fines de semana o periodos vacacionales).
+
+                                ## 4. Análisis horario
+                                - Describe el patrón horario típico (mayor consumo en horarios de cambio de clase, hora del café, etc.).
+                                - Compara días laborables vs fines de semana.
+
+                                ## 5. Detección de anomalías y posibles fugas
+                                Aplica estos criterios:
+                                a) **Consumo nocturno sospechoso (posible fuga)**: consumo constante entre las 23:00-06:00 superior al 10% del consumo medio diurno. Una fuga típica se manifiesta como un caudal pequeño pero CONTINUO durante horas en las que el edificio está vacío.
+                                b) **Caudal base elevado**: si el mínimo horario nunca baja por debajo de un cierto valor durante el mes, sospecha de fuga estructural.
+                                c) **Picos extremos**: cualquier valor horario que supere en más de 2 desviaciones estándar la media.
+                                d) **Días atípicos**: días cuyo consumo total se desvíe más de 1.5 desviaciones estándar de la media diaria.
+                                e) **Caídas a cero**: periodos donde el consumo cae a 0 durante horas con actividad esperada (puede indicar contador averiado o corte).
+
+                                Para cada anomalía indica: fecha/hora, contador afectado, valor registrado, valor esperado y tipo de anomalía.
+                                Si no se detectan anomalías, indícalo explícitamente.
+
+                                ## 6. Conclusiones y recomendaciones
+                                - Resumen ejecutivo del estado del consumo hídrico.
+                                - Si hay sospecha de fuga, marca su nivel de prioridad y sugiere la revisión.
+                                - Valora si el patrón es coherente con el uso esperado del edificio.
+
+                                Importante: Presenta los datos de forma clara, usa tablas cuando sea apropiado. Si algún paso falla, indícalo y continúa con los datos disponibles.`
+                        }
+                    }
+                ]
+            };
+        }
+    );
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  3. Informe de CONFORT AMBIENTAL en un aula (roomsensors)
+    // ─────────────────────────────────────────────────────────────────────────
+    server.registerPrompt(
+        "informe-confort-aula",
+        {
+            description: "Analiza la calidad ambiental interior de un aula, despacho o sala (CO2, temperatura, humedad y VOC) en un periodo concreto. Evalúa el confort según normativa, detecta problemas de ventilación o climatización y sugiere mejoras. Usa sensores de la colección 'roomsensors'.",
+            inputSchema: z.object({
+                aula: z.string().describe("Identificador del aula o sala. Puede ser un código (ej: 'A1/0M01'), un nombre ('aula magna', 'aula 12 politecnica'), una descripción ('despachos de informática') o un edificio entero. El sistema usará búsqueda semántica sobre edificios y filtrado de dispositivos para localizarla."),
+                desde: z.string().describe("Fecha inicial del análisis en formato YYYY-MM-DD."),
+                hasta: z.string().describe("Fecha final del análisis en formato YYYY-MM-DD.")
+            })
+        },
+        async (args) => {
+            console.error("Args recibidos (informe-confort-aula):", JSON.stringify(args));
+
+            const aula  = args?.aula  ?? args?.arguments?.aula  ?? "sin_identificador";
+            const desde = args?.desde ?? args?.arguments?.desde ?? "2025-01-01";
+            const hasta = args?.hasta ?? args?.arguments?.hasta ?? "2025-01-07";
+
+            const start = `${desde}T00:00:00.000Z`;
+            const end   = `${hasta}T23:59:59.000Z`;
+
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text: `Eres un experto en calidad ambiental interior y confort en edificios universitarios. Analiza la calidad del aire y el confort térmico de "${aula}" entre el ${desde} y el ${hasta} (UTC: del ${start} al ${end}).
+
+                                Sigue estos pasos en orden estricto:
+
+                                ─── PASO 1: Localizar el aula / sala ───
+                                a) Primero, usa "search-campus-buildings" con query="${aula}" para identificar el edificio asociado (si el usuario menciona un edificio o zona).
+                                b) Luego, usa "discover-collection" con collection="roomsensors" para obtener la lista completa de sensores ambientales disponibles.
+                                c) Filtra los sensores que coincidan con la consulta del usuario buscando en sus alias y metadatos:
+                                   - Si la query es un código específico (ej: 'A1/0M01'), búscalo exactamente.
+                                   - Si es un nombre/descripción, busca por el código SIGUA del edificio identificado y por palabras clave en el alias.
+                                d) Si hay varios sensores candidatos, indica al usuario cuáles has encontrado y elige los más probables justificando la elección.
+                                e) Si no encuentras ningún sensor, muestra qué edificios sí tienen sensores 'roomsensors' disponibles y detente.
+
+                                ─── PASO 2: Obtener metadatos de los sensores ───
+                                Para cada sensor identificado, usa "get-device-details" con collection="roomsensors" para conocer su ubicación exacta, alias y magnitudes.
+
+                                ─── PASO 3: Confirmar las magnitudes disponibles ───
+                                Usa "discover-collection" con collection="roomsensors" y device_id=(cada sensor) para listar las magnitudes que mide. Se esperan: CO2, temperatura interior, humedad interior y VOC.
+
+                                ─── PASO 4: Obtener datos agregados horarios de cada magnitud ───
+                                Para cada sensor y cada magnitud (co2, temperature, humidity, voc), usa "query-aggregation" con:
+                                - collection = "roomsensors"
+                                - device_id = (id del sensor)
+                                - magnitude = (la magnitud)
+                                - start = "${start}"
+                                - end = "${end}"
+                                - operations = "avg"
+                                - interval_minutes = 60
+
+                                ─── PASO 5: Obtener máximos y mínimos diarios de CO2 y temperatura ───
+                                Repite "query-aggregation" para CO2 y temperatura con:
+                                - operations = "max" y luego "min"
+                                - interval_minutes = 1440 (diario)
+                                Esto permite identificar los peores momentos del día.
+
+                                ─── PASO 6: Generar el informe con esta estructura ───
+
+                                ## 1. Aula/sala analizada
+                                - Edificio (código SIGUA y nombre).
+                                - Ubicación exacta dentro del edificio (planta, sala).
+                                - Sensores utilizados con su alias.
+                                - Periodo analizado y número total de horas con datos.
+
+                                ## 2. Resumen ambiental del periodo
+                                Tabla con: magnitud · media · máximo · mínimo · unidad
+                                - CO2 (ppm)
+                                - Temperatura interior (°C)
+                                - Humedad relativa (%)
+                                - VOC (índice)
+
+                                ## 3. Evaluación de confort según normativa
+                                Aplica estos umbrales (basados en RITE y recomendaciones de calidad de aire interior):
+
+                                **CO2 (ventilación)**
+                                - < 800 ppm: excelente
+                                - 800 - 1000 ppm: aceptable
+                                - 1000 - 1400 ppm: ventilación insuficiente
+                                - > 1400 ppm: deficiente, puede causar somnolencia y bajo rendimiento
+
+                                **Temperatura (confort térmico)**
+                                - Invierno: 21 - 23 °C óptimo, 20 - 24 °C aceptable
+                                - Verano: 23 - 25 °C óptimo, 22 - 26 °C aceptable
+                                - Fuera de rango: incómodo
+
+                                **Humedad relativa**
+                                - 40 - 60 %: óptimo
+                                - 30 - 40 % o 60 - 70 %: aceptable
+                                - < 30 % o > 70 %: incómodo, puede afectar a la salud
+
+                                **VOC**
+                                - Bajo: calidad de aire buena
+                                - Medio: aceptable, ventilar si es continuo
+                                - Alto: ventilar inmediatamente
+
+                                Indica el porcentaje del tiempo que cada magnitud estuvo en cada rango.
+
+                                ## 4. Patrones horarios y diarios
+                                - Describe cómo evolucionan las magnitudes a lo largo del día (ej: subida de CO2 durante clases, picos a media mañana).
+                                - Diferencia días laborables vs fines de semana.
+                                - Identifica las franjas horarias más críticas.
+
+                                ## 5. Eventos relevantes
+                                a) **Picos de CO2**: momentos en que se supera 1400 ppm. Indica día, hora y duración.
+                                b) **Disconfort térmico prolongado**: periodos de más de 2 horas con temperatura fuera del rango aceptable.
+                                c) **Humedad extrema**: periodos por debajo del 30 % o por encima del 70 %.
+                                d) **Posibles fallos de sensor**: valores planos (constantes) durante horas o valores físicamente imposibles.
+
+                                ## 6. Diagnóstico y recomendaciones
+                                - Valoración global del confort del aula (buena, aceptable, deficiente).
+                                - Si el CO2 sube en exceso durante las clases: posible problema de ventilación o aforo excesivo.
+                                - Si la temperatura está fuera de rango: revisar climatización y consigna.
+                                - Si la humedad es extrema: valorar humidificación/deshumidificación o estanqueidad.
+                                - Recomendaciones concretas y priorizadas.
+
+                                Importante: Presenta los datos con tablas y porcentajes claros. Si algún paso falla o falta alguna magnitud, indícalo explícitamente y continúa con las disponibles.`
                         }
                     }
                 ]
