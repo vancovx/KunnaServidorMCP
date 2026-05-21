@@ -11,10 +11,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "crypto";
-import { join } from 'path';
+import { join, dirname } from 'path';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // No se como arreglar esto
-dotenv.config({ path: join(process.cwd(), 'src/config/.env'), quiet: true });
+import { fileURLToPath } from 'url';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ 
+    path: join(__dirname, 'src/config/.env'), 
+    quiet: true,
+    debug: false // Fuerza a que no imprima mensajes de diagnóstico
+});
 
 // Errores no controlados
 process.on("uncaughtException", (err) => {
@@ -357,12 +363,10 @@ async function startMcpServer() {
             logger.info({ port, env: process.env.NODE_ENV }, "Servidor MCP listo");
         });
 
-        // Desactivar timeouts que cierran streams SSE de larga duracion.
-        // Por defecto Node mata peticiones a los 5min (requestTimeout).
-        httpServer.requestTimeout = 0;        // sin limite por peticion
-        httpServer.headersTimeout = 0;        // sin limite recibiendo headers
-        httpServer.keepAliveTimeout = 120000; // 2min de keep-alive entre peticiones
-        httpServer.timeout = 0;               // sin timeout de socket inactivo
+        httpServer.requestTimeout = 0;        
+        httpServer.headersTimeout = 0;        
+        httpServer.keepAliveTimeout = 120000; 
+        httpServer.timeout = 0;               
 
     } else if (process.env.NODE_ENV === "development") {
         const server = createMcpServer();

@@ -49,7 +49,7 @@ export function registerPrompts(server) {
                                 Si no encuentras contadores asociados al edificio, indícalo y detente.
 
                                 ─── PASO 3: Obtener metadatos de cada contador ───
-                                Para cada dispositivo encontrado, usa "get-device-details" con collection="energy" para conocer su alias, ubicación y tipo de medida.
+                                Para cada dispositivo encontrado en el edificio pedido, usa "get-device-details" con collection="energy" para conocer su alias, ubicación y tipo de medida.
 
                                 ─── PASO 4: Datos agregados diarios ───
                                 Para cada dispositivo, usa "query-aggregation" con:

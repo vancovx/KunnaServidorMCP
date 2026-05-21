@@ -31,4 +31,3 @@ for (const file of files) {
 }
 
 await writeFile(OUTPUT_FILE, JSON.stringify(edificios, null, 2), "utf-8");
-console.log(`✓ ${edificios.length} edificios guardados en edificios.json`);
