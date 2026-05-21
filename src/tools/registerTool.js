@@ -6,18 +6,18 @@ import logger from "../config/logger.js";
 
 // Schema reutilizable: colecciones IoT
 const collectionEnum = z.enum([
-    "bim",
+    //"bim",
     "water",
     "energy",
     "weather",
-    "sensotran",
+    //"sensotran",
     "roomsensors",
-    "light",
-    "fv",
-    "irrigation",
-    "bibliotecaindoorambiental",
+    //"light",
+    //"fv",
+    //"irrigation",
+    //"bibliotecaindoorambiental",
     "wifi",
-    "gva_weather",
+    //"gva_weather",
 ]).describe(
     `Coleccion de datos IoT a consultar. Selecciona segun el tipo de consulta del usuario:\n` +
 
@@ -34,34 +34,34 @@ const collectionEnum = z.enum([
     `- 'weather': Estacion meteorologica propia instalada en el campus de la Universidad de Alicante. ` +
         `Usar cuando pregunten por: temperatura exterior del campus, viento en la universidad, lluvia en el campus, humedad ambiente, presion atmosferica, clima del campus.\n` +
 
-    `- 'sensotran': Sensores de prevencion y seguridad de gases. ` +
-        `Miden concentraciones de monoxido de carbono (CO), hidrogeno (H2), compuestos organicos volatiles (VOC) y gases inflamables. ` +
-        `Objetivo: evaluar seguridad, detectar fugas y validar el sistema antes de despliegue definitivo. ` +
-        `Usar cuando pregunten por: deteccion de gases, fugas de gas, seguridad de gases, CO, hidrogeno, VOC exterior, gases inflamables.\n` +
+    //`- 'sensotran': Sensores de prevencion y seguridad de gases. ` +
+    //    `Miden concentraciones de monoxido de carbono (CO), hidrogeno (H2), compuestos organicos volatiles (VOC) y gases inflamables. ` +
+    //    `Objetivo: evaluar seguridad, detectar fugas y validar el sistema antes de despliegue definitivo. ` +
+    //    `Usar cuando pregunten por: deteccion de gases, fugas de gas, seguridad de gases, CO, hidrogeno, VOC exterior, gases inflamables.\n` +
 
     `- 'roomsensors': Calidad ambiental interior de salas, aulas y despachos. ` +
         `Miden CO2, temperatura interior, humedad interior y VOC. ` +
         `Usar cuando pregunten por: CO2 en aulas, temperatura de una sala, humedad dentro de un edificio, calidad del aire interior, confort termico, ventilacion de salas.\n` +
 
-    `- 'light': Luminarias de exterior instaladas en el campus universitario. ` +
-        `Usar cuando pregunten por: farolas, alumbrado exterior, iluminacion del campus, luminarias, luces exteriores.\n` +
+    //`- 'light': Luminarias de exterior instaladas en el campus universitario. ` +
+    //    `Usar cuando pregunten por: farolas, alumbrado exterior, iluminacion del campus, luminarias, luces exteriores.\n` +
 
-    `- 'fv': Produccion solar fotovoltaica de la Universidad de Alicante. ` +
-        `Usar cuando pregunten por: paneles solares, produccion solar, energia renovable, autoconsumo, fotovoltaica, generacion solar.\n` +
+    //`- 'fv': Produccion solar fotovoltaica de la Universidad de Alicante. ` +
+    //    `Usar cuando pregunten por: paneles solares, produccion solar, energia renovable, autoconsumo, fotovoltaica, generacion solar.\n` +
 
-    `- 'irrigation': Gestion de agua de riego de jardines y zonas verdes del campus. ` +
-        `Usar cuando pregunten por: riego, aspersores, agua de riego, zonas verdes, jardines, programacion de riego.\n` +
+    //`- 'irrigation': Gestion de agua de riego de jardines y zonas verdes del campus. ` +
+    //    `Usar cuando pregunten por: riego, aspersores, agua de riego, zonas verdes, jardines, programacion de riego.\n` +
 
-    `- 'bibliotecaindoorambiental': Sensores ambientales interiores especificos de la Biblioteca General. ` +
-        `Usar cuando pregunten por: ambiente en la biblioteca, temperatura de la biblioteca, CO2 en la biblioteca, humedad en la biblioteca. ` +
-        `NOTA: si preguntan por calidad ambiental de OTROS edificios, usar 'roomsensors' en su lugar.\n` +
+    //`- 'bibliotecaindoorambiental': Sensores ambientales interiores especificos de la Biblioteca General. ` +
+    //    `Usar cuando pregunten por: ambiente en la biblioteca, temperatura de la biblioteca, CO2 en la biblioteca, humedad en la biblioteca. ` +
+    //    `NOTA: si preguntan por calidad ambiental de OTROS edificios, usar 'roomsensors' en su lugar.\n` +
 
     `- 'wifi': Datos de conectividad WiFi del campus. ` +
-        `Usar cuando pregunten por: conexiones WiFi, usuarios conectados, cobertura WiFi, red inalambrica, puntos de acceso, trafico de red.\n` +
+        `Usar cuando pregunten por: conexiones WiFi, usuarios conectados, cobertura WiFi, red inalambrica, puntos de acceso, trafico de red.\n` 
 
-    `- 'gva_weather': Datos meteorologicos de la API de la Generalitat Valenciana (red de estaciones AVAMET/AEMET). ` +
-        `Usar cuando pregunten por: meteorologia regional, clima de la Comunidad Valenciana, estaciones meteorologicas de la GVA, comparar clima campus vs region. ` +
-        `NOTA: si pregunten por meteorologia especifica del campus, usar 'weather' en su lugar.`
+    //`- 'gva_weather': Datos meteorologicos de la API de la Generalitat Valenciana (red de estaciones AVAMET/AEMET). ` +
+    //    `Usar cuando pregunten por: meteorologia regional, clima de la Comunidad Valenciana, estaciones meteorologicas de la GVA, comparar clima campus vs region. ` +
+    //    `NOTA: si pregunten por meteorologia especifica del campus, usar 'weather' en su lugar.`
 );
 
 // ─────────────────────────────────────────────────────────────────────────────

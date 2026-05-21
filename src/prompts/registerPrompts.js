@@ -43,15 +43,20 @@ export function registerPrompts(server) {
                                 - Si no devuelve resultados, muestra al usuario las opciones disponibles y detente.
                                 Guarda el código SIGUA del edificio resuelto para los siguientes pasos.
 
-                                ─── PASO 2: Identificar los contadores eléctricos del edificio ───
-                                Usa "discover-collection" con collection="energy" para obtener todos los dispositivos disponibles.
-                                Filtra los dispositivos que pertenezcan al edificio identificado en el paso 1 (busca coincidencias por código SIGUA en los metadatos, nombre o alias).
+                                ─── PASO 2: Identificar los contadores eléctricos del edificio y obtener sus metadatos (en UNA SOLA llamada) ───
+                                Haz UNA ÚNICA llamada a "query-data" con:
+                                - collection = "energy"
+                                - limit = 800
+                                - include_metadata = true
+                                Esta llamada devuelve, en una sola petición, TODOS los dispositivos de la colección junto con sus metadatos completos (alias, ubicación dentro del edificio, geolocalización, código SIGUA, organización, tipo de métrica, campos personalizados).
+
+                                A partir de esa respuesta, filtra in-memory los dispositivos que pertenezcan al edificio identificado en el paso 1 (busca coincidencias por código SIGUA en los metadatos, y en su defecto por nombre o alias del dispositivo).
+
+                                IMPORTANTE: No llames a "discover-collection" ni a "get-device-details" en este paso, sería ineficiente. Toda la información necesaria viene en la respuesta de "query-data" con include_metadata=true.
+
                                 Si no encuentras contadores asociados al edificio, indícalo y detente.
 
-                                ─── PASO 3: Obtener metadatos de cada contador ───
-                                Para cada dispositivo encontrado en el edificio pedido, usa "get-device-details" con collection="energy" para conocer su alias, ubicación y tipo de medida.
-
-                                ─── PASO 4: Datos agregados diarios ───
+                                ─── PASO 3: Datos agregados diarios ───
                                 Para cada dispositivo, usa "query-aggregation" con:
                                 - collection = "energy"
                                 - device_id = (el ID del dispositivo)
@@ -61,13 +66,13 @@ export function registerPrompts(server) {
                                 - interval_minutes = 1440 (agrupación diaria)
                                 Repite con operations = "max" y operations = "min".
 
-                                ─── PASO 5: Datos agregados horarios (para detectar anomalías) ───
+                                ─── PASO 4: Datos agregados horarios (para detectar anomalías) ───
                                 Usa "query-aggregation" con:
                                 - interval_minutes = 60 (agrupación horaria)
                                 - operations = "avg"
                                 - Mismo rango de fechas y dispositivos.
 
-                                ─── PASO 6: Generar el informe con esta estructura ───
+                                ─── PASO 5: Generar el informe con esta estructura ───
 
                                 ## 1. Datos del edificio
                                 - Código SIGUA, nombre del edificio, número de contadores encontrados.
@@ -151,15 +156,22 @@ export function registerPrompts(server) {
                                 - Si no hay resultados, muestra los edificios disponibles y detente.
                                 Guarda el código SIGUA del edificio resuelto.
 
-                                ─── PASO 2: Identificar los contadores de agua del edificio ───
-                                Usa "discover-collection" con collection="water" para obtener los dispositivos disponibles.
-                                Filtra los dispositivos del edificio identificado (por código SIGUA, nombre o alias).
-                                Si no encuentras contadores asociados, indícalo y detente.
+                                ─── PASO 2: Identificar los contadores de agua del edificio y obtener sus metadatos (en UNA SOLA llamada) ───
+                                Haz UNA ÚNICA llamada a "query-data" con:
+                                - collection = "water"
+                                - start = "${start}"
+                                - end = "${end}"
+                                - limit = 1
+                                - include_metadata = true
+                                Esta llamada devuelve, en una sola petición, TODOS los dispositivos de la colección junto con sus metadatos completos (alias, ubicación dentro del edificio, geolocalización, código SIGUA, organización, tipo de métrica, campos personalizados).
 
-                                ─── PASO 3: Obtener metadatos de cada contador ───
-                                Para cada dispositivo encontrado, usa "get-device-details" con collection="water" para conocer su alias, ubicación y tipo.
+                                A partir de esa respuesta, filtra in-memory los dispositivos que pertenezcan al edificio identificado en el paso 1 (busca coincidencias por código SIGUA en los metadatos, y en su defecto por nombre o alias del dispositivo).
 
-                                ─── PASO 4: Datos agregados diarios ───
+                                IMPORTANTE: No llames a "discover-collection" ni a "get-device-details" en este paso, sería ineficiente. Toda la información necesaria viene en la respuesta de "query-data" con include_metadata=true.
+
+                                Si no encuentras contadores asociados al edificio, indícalo y detente.
+
+                                ─── PASO 3: Datos agregados diarios ───
                                 Para cada dispositivo, usa "query-aggregation" con:
                                 - collection = "water"
                                 - device_id = (el ID del dispositivo)
@@ -169,13 +181,13 @@ export function registerPrompts(server) {
                                 - interval_minutes = 1440 (agrupación diaria)
                                 Repite con operations = "max", "min" y "sum" para tener el total diario.
 
-                                ─── PASO 5: Datos agregados horarios (para detectar fugas) ───
+                                ─── PASO 4: Datos agregados horarios (para detectar fugas) ───
                                 Usa "query-aggregation" con:
                                 - interval_minutes = 60 (agrupación horaria)
                                 - operations = "avg"
                                 - Mismo rango de fechas y dispositivos.
 
-                                ─── PASO 6: Generar el informe con esta estructura ───
+                                ─── PASO 5: Generar el informe con esta estructura ───
 
                                 ## 1. Datos del edificio
                                 - Código SIGUA, nombre del edificio, número de contadores de agua encontrados.
@@ -253,23 +265,29 @@ export function registerPrompts(server) {
 
                                 Sigue estos pasos en orden estricto:
 
-                                ─── PASO 1: Localizar el aula / sala ───
-                                a) Primero, usa "search-campus-buildings" con query="${aula}" para identificar el edificio asociado (si el usuario menciona un edificio o zona).
-                                b) Luego, usa "discover-collection" con collection="roomsensors" para obtener la lista completa de sensores ambientales disponibles.
-                                c) Filtra los sensores que coincidan con la consulta del usuario buscando en sus alias y metadatos:
-                                   - Si la query es un código específico (ej: 'A1/0M01'), búscalo exactamente.
-                                   - Si es un nombre/descripción, busca por el código SIGUA del edificio identificado y por palabras clave en el alias.
-                                d) Si hay varios sensores candidatos, indica al usuario cuáles has encontrado y elige los más probables justificando la elección.
-                                e) Si no encuentras ningún sensor, muestra qué edificios sí tienen sensores 'roomsensors' disponibles y detente.
+                                ─── PASO 1: Identificar el edificio asociado ───
+                                Si el usuario menciona un edificio o zona, usa "search-campus-buildings" con query="${aula}" para identificar el edificio asociado y obtener su código SIGUA.
+                                Si la query es claramente un código de sensor específico (ej: 'A1/0M01') sin referencia a edificio, puedes saltarte este paso.
 
-                                ─── PASO 2: Obtener metadatos de los sensores ───
-                                Para cada sensor identificado, usa "get-device-details" con collection="roomsensors" para conocer su ubicación exacta, alias y magnitudes.
+                                ─── PASO 2: Localizar los sensores ambientales y obtener sus metadatos (en UNA SOLA llamada) ───
+                                Haz UNA ÚNICA llamada a "query-data" con:
+                                - collection = "roomsensors"
+                                - start = "${start}"
+                                - end = "${end}"
+                                - limit = 1
+                                - include_metadata = true
+                                Esta llamada devuelve, en una sola petición, TODOS los sensores ambientales junto con sus metadatos completos (alias, ubicación exacta dentro del edificio, planta, geolocalización, código SIGUA, organización, campos personalizados) Y las magnitudes que están midiendo en ese rango temporal.
 
-                                ─── PASO 3: Confirmar las magnitudes disponibles ───
-                                Usa "discover-collection" con collection="roomsensors" y device_id=(cada sensor) para listar las magnitudes que mide. Se esperan: CO2, temperatura interior, humedad interior y VOC.
+                                A partir de esa respuesta, filtra in-memory los sensores que coincidan con la consulta del usuario:
+                                - Si la query es un código específico (ej: 'A1/0M01'), búscalo exactamente en el alias o el id del dispositivo.
+                                - Si es un nombre/descripción, filtra por el código SIGUA del edificio identificado en el paso 1 y por palabras clave en el alias o ubicación.
 
-                                ─── PASO 4: Obtener datos agregados horarios de cada magnitud ───
-                                Para cada sensor y cada magnitud (co2, temperature, humidity, voc), usa "query-aggregation" con:
+                                IMPORTANTE: No llames a "discover-collection" ni a "get-device-details" en este paso, sería ineficiente. Toda la información necesaria (dispositivos, ubicaciones, magnitudes presentes) viene en la respuesta de "query-data" con include_metadata=true.
+
+                                Si hay varios sensores candidatos, indica al usuario cuáles has encontrado y elige los más probables justificando la elección. Si no encuentras ningún sensor, indícalo y detente; las magnitudes esperadas para esta colección son: CO2, temperatura interior, humedad interior y VOC.
+
+                                ─── PASO 3: Obtener datos agregados horarios de cada magnitud ───
+                                Para cada sensor identificado y cada magnitud (co2, temperature, humidity, voc), usa "query-aggregation" con:
                                 - collection = "roomsensors"
                                 - device_id = (id del sensor)
                                 - magnitude = (la magnitud)
@@ -278,13 +296,13 @@ export function registerPrompts(server) {
                                 - operations = "avg"
                                 - interval_minutes = 60
 
-                                ─── PASO 5: Obtener máximos y mínimos diarios de CO2 y temperatura ───
+                                ─── PASO 4: Obtener máximos y mínimos diarios de CO2 y temperatura ───
                                 Repite "query-aggregation" para CO2 y temperatura con:
                                 - operations = "max" y luego "min"
                                 - interval_minutes = 1440 (diario)
                                 Esto permite identificar los peores momentos del día.
 
-                                ─── PASO 6: Generar el informe con esta estructura ───
+                                ─── PASO 5: Generar el informe con esta estructura ───
 
                                 ## 1. Aula/sala analizada
                                 - Edificio (código SIGUA y nombre).
