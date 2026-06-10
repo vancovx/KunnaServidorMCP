@@ -1,3 +1,8 @@
+// src/server.js
+// Construcción del servidor MCP y de la capa HTTP/transporte.
+// index.js solo arranca el proceso; aquí vive todo el "montaje" de la app.
+// Este módulo NO ejecuta nada al importarse: solo define y exporta funciones.
+
 import express from "express";
 import cors from "cors";
 import logger from "./config/logger.js";
@@ -10,27 +15,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "crypto";
 
-
-// Extrae el último mensaje de usuario del cuerpo de la petición
-// (lo usa la búsqueda semántica de tools en tools/call).
-function extractUserQuery(body) {
-    try {
-        const messages = body?.messages ?? [];
-        const userMessages = messages.filter(m => m.role === "user");
-        if (userMessages.length === 0) return null;
-
-        const last = userMessages[userMessages.length - 1];
-        const content = last?.content;
-
-        if (typeof content === "string") return content;
-        if (Array.isArray(content)) return content.find(c => c.type === "text")?.text ?? null;
-        if (content?.type === "text") return content.text;
-
-        return null;
-    } catch {
-        return null;
-    }
-}
 
 // Abreviar sessionId a los primeros 8 caracteres para los logs
 function sid(sessionId) {
@@ -60,6 +44,18 @@ export function createMcpServer(relevantToolNames = null) {
 export async function startMcpServer() {
 
     await CampusService.initialize();
+
+    // ── Filtrado semántico de tools (opcional, controlado por entorno) ────
+    // Si MCP_TOOL_FILTER=true, una sesión puede iniciarse con un "foco"
+    // (POST /mcp?q=...) y el servidor expondrá en tools/list solo las tools de
+    // datos relevantes a ese texto, calculadas por embeddings. El origen del
+    // foco aquí es un parámetro explícito (demo); en un host real vendría de la
+    // conversación. Desactivado (por defecto) -> se exponen todas las tools.
+    const TOOL_FILTER_ENABLED   = process.env.MCP_TOOL_FILTER === "true";
+    const TOOL_FILTER_TOPK      = Number(process.env.MCP_TOOL_FILTER_TOPK) || 4;
+    const TOOL_FILTER_THRESHOLD = Number(process.env.MCP_TOOL_FILTER_THRESHOLD) || 0.35;
+
+    logger.info({ enabled: TOOL_FILTER_ENABLED }, "Filtrado semántico de tools");
 
     const app = express();
 
@@ -104,7 +100,39 @@ export async function startMcpServer() {
             );
 
             try {
-                const server = createMcpServer();
+                // Filtrado opcional: si está activado y la sesión llega con un
+                // foco (?q=...), reducimos las tools de datos a las relevantes.
+                // Ante cualquier problema, fallback seguro -> todas las tools.
+                let relevantToolNames = null;
+                if (TOOL_FILTER_ENABLED) {
+                    const focus = typeof req.query.q === "string" ? req.query.q.trim() : "";
+                    if (focus) {
+                        try {
+                            const relevant = await EmbeddingsService.findRelevantTools(
+                                focus, TOOL_FILTER_TOPK, TOOL_FILTER_THRESHOLD
+                            );
+                            if (relevant.length > 0) {
+                                relevantToolNames = relevant.map(t => t.nombre);
+                                logger.info(
+                                    { sid: sid(sessionId), focus, tools: relevantToolNames },
+                                    "[1/5] INIT -> Toolset filtrado por foco semantico"
+                                );
+                            } else {
+                                logger.warn(
+                                    { sid: sid(sessionId), focus },
+                                    "[1/5] INIT -> Sin coincidencias, se exponen todas las tools"
+                                );
+                            }
+                        } catch (err) {
+                            logger.error(
+                                { sid: sid(sessionId), err },
+                                "[1/5] INIT -> Error filtrando, se exponen todas las tools"
+                            );
+                        }
+                    }
+                }
+
+                const server = createMcpServer(relevantToolNames);
                 const transport = new StreamableHTTPServerTransport({
                     sessionIdGenerator: () => sessionId,
                 });
@@ -226,30 +254,6 @@ export async function startMcpServer() {
                     { sid: sid(incomingSessionId), tool: toolName },
                     "[4/5] CALL  -> Ejecutando herramienta"
                 );
-
-                // Busqueda semantica para filtrar tools relevantes
-                try {
-                    const userQuery = extractUserQuery(req.body);
-                    if (userQuery) {
-                        const shortQuery = userQuery.slice(0, 80);
-                        const relevantTools = await EmbeddingsService.findRelevantTools(userQuery, 4, 0.35);
-
-                        if (relevantTools.length > 0) {
-                            const relevantToolNames = relevantTools.map(t => t.nombre);
-                            logger.debug(
-                                { sid: sid(incomingSessionId), query: shortQuery, tools: relevantToolNames },
-                                "[4/5] CALL  -> Tools relevantes por busqueda semantica"
-                            );
-                        } else {
-                            logger.warn(
-                                { sid: sid(incomingSessionId), query: shortQuery },
-                                "[4/5] CALL  -> Sin coincidencias semanticas, usando todas las tools"
-                            );
-                        }
-                    }
-                } catch (err) {
-                    logger.error({ sid: sid(incomingSessionId), err }, "[4/5] CALL  -> Error en busqueda semantica");
-                }
 
                 try {
                     await transport.handleRequest(req, res, req.body);
