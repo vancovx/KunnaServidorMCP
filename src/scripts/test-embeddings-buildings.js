@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { EmbeddingsService } from '../services/embeddings.service.js';
 
 const queries = [

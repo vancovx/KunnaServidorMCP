@@ -1,5 +1,6 @@
+import 'dotenv/config'
+
 import express from "express";
-import dotenv from "dotenv";
 import cors from "cors";
 import logger from "./src/config/logger.js";
 import { registerTools } from "./src/tools/registerTool.js";
@@ -10,16 +11,9 @@ import { CampusService } from "./src/services/campus.service.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "crypto";
-import { join, dirname } from 'path';
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // No se como arreglar esto
-import { fileURLToPath } from 'url';
-const __dirname = dirname(fileURLToPath(import.meta.url));
-dotenv.config({ 
-    path: join(__dirname, 'src/config/.env'), 
-    quiet: true,
-    debug: false // Fuerza a que no imprima mensajes de diagnóstico
-});
+// TODO: Eliminar esta linea y arreglar el problema de certificados en desarrollo
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' 
 
 // Errores no controlados
 process.on("uncaughtException", (err) => {

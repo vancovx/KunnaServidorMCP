@@ -1,7 +1,6 @@
+import 'dotenv/config';
 import { join } from 'path';
 import { EmbeddingsService } from '../services/embeddings.service.js';
-
-console.error('DATABASE_URL:', process.env.DATABASE_URL);
 
 async function main() {
     const args = process.argv.slice(2);

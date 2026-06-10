@@ -1,17 +1,7 @@
 // src/services/embeddings.service.js
 import { pipeline } from '@xenova/transformers';
 import pg from 'pg';
-import dotenv from 'dotenv';
-import { join, dirname } from 'path';
 import { readFile } from 'fs/promises';
-
-import { fileURLToPath } from 'url';
-const __dirname = dirname(fileURLToPath(import.meta.url));
-dotenv.config({ 
-    path: join(__dirname, 'src/config/.env'), 
-    quiet: true,
-    debug: false // Fuerza a que no imprima mensajes de diagnóstico
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Modelo singleton — se carga una sola vez en toda la vida del proceso
