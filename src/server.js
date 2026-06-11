@@ -46,9 +46,6 @@ export async function startMcpServer() {
 
     const app = express();
 
-    // Detras de 1 proxy (ngrok / reverse proxy): req.ip = IP real del cliente.
-    // Usar 1 y no true: con true un cliente podria falsificar X-Forwarded-For
-    // para rotar de "IP" y esquivar el rate limiter.
     app.set("trust proxy", 1);
 
     // Mapa de sesiones activas: sessionId -> { server, transport, lastActivity }
@@ -61,21 +58,15 @@ export async function startMcpServer() {
     // Heartbeat SSE para mantener vivos los streams de notificaciones
     const HEARTBEAT_MS = 20000;
 
-    // ── Pipeline de middlewares ────────────────────────────────────────────
-    // El ORDEN se lee aqui; la configuracion vive en src/middleware/.
     app.use(securityHeaders);
     app.use(corsPolicy);
 
-    // Health check ANTES del rate limiter: los monitores pegan cada pocos
-    // segundos desde la misma IP y se auto-bloquearian (auto-DoS).
+    // Health check
     app.get("/health", (req, res) => {
         res.json({ status: "ok" });
     });
 
     app.use("/mcp", mcpRateLimiter);
-
-    // Parsear el body DESPUES del limiter: si una IP esta bloqueada,
-    // no gastamos CPU parseando su JSON.
     app.use(express.json());
 
     app.all("/mcp", validateAcceptHeader, async (req, res) => {
@@ -83,7 +74,7 @@ export async function startMcpServer() {
         const method = req.body?.method;
         const incomingSessionId = req.headers["mcp-session-id"];
 
-        // ── [1/5] INIT -> initialize: crear sesion nueva ───────────────────
+        //  [1/5] INIT -> initialize: crear sesion nueva 
         if (req.method === "POST" && method === "initialize") {
             const sessionId = randomUUID();
             const client = req.body?.params?.clientInfo?.name ?? "desconocido";
@@ -125,7 +116,7 @@ export async function startMcpServer() {
             return;
         }
 
-        // ── DELETE -> cerrar sesion ────────────────────────────────────────
+        // DELETE -> cerrar sesion
         if (req.method === "DELETE") {
             if (incomingSessionId && sessions.has(incomingSessionId)) {
                 const { server, transport } = sessions.get(incomingSessionId);
@@ -151,13 +142,12 @@ export async function startMcpServer() {
                 return res.status(200).json({ status: "session closed" });
             }
 
-            // Spec MCP: sessionId desconocido -> 404 para que el cliente
-            // sepa que debe re-inicializar.
+            // Spec MCP: sessionId desconocido -> 404 para que el cliente sepa que debe re-inicializar.
             logger.warn({ sid: sid(incomingSessionId), ip }, "[5/5] CLOSE -> DELETE con sesion desconocida");
             return res.status(404).json({ error: "Session not found" });
         }
 
-        // ── Peticiones con sesion existente ───────────────────────────────
+        // Peticiones con sesion existente 
         if (incomingSessionId && sessions.has(incomingSessionId)) {
             const session = sessions.get(incomingSessionId);
             const { server, transport } = session;
@@ -280,7 +270,6 @@ export async function startMcpServer() {
         }
 
         // Header presente pero sesion desconocida/expirada -> 404 (spec MCP):
-        // el cliente debe re-inicializar, no operar a ciegas en stateless.
         if (incomingSessionId) {
             logger.warn(
                 { sid: sid(incomingSessionId), ip, method },
@@ -293,18 +282,7 @@ export async function startMcpServer() {
             });
         }
 
-        // ── Sin sesion (sin header) -> modo STATELESS (fallback deliberado) ─
-        //
-        // DECISIÓN DE DISEÑO: las peticiones sin header Mcp-Session-Id se
-        // atienden en modo stateless (sessionIdGenerator: undefined). Esto
-        // permite que clientes simples (curl, scripts, health-checkers MCP)
-        // hagan llamadas puntuales sin el handshake initialize.
-        //
-        // Trade-offs aceptados:
-        //  - Coste: se crea un McpServer + transport nuevos por peticion.
-        //  - Sin estado entre llamadas ni notificaciones servidor->cliente.
-        //  - Si el trafico stateless creciera, cachear definiciones de tools
-        //    o exigir sesion seria el siguiente paso.
+        // Sin sesion (sin header) 
         const sessionId = randomUUID();
         logger.info(
             { sid: sid(sessionId), method },
@@ -330,7 +308,7 @@ export async function startMcpServer() {
         }
     });
 
-    // ── Limpieza periodica de sesiones inactivas ──────────────────────────
+    //  Limpieza periodica de sesiones inactivas 
     const cleanupInterval = setInterval(() => {
         const now = Date.now();
         let removed = 0;
@@ -338,8 +316,7 @@ export async function startMcpServer() {
             if (now - (session.lastActivity ?? 0) > SESSION_TTL_MS) {
                 sessions.delete(sessionId);
 
-                // Igual que en el DELETE: liberar streams SSE y referencias
-                // internas, no solo la entrada del Map.
+                // Liberar streams SSE y referencias
                 session.transport.close().catch(() => {});
                 session.server.close().catch(() => {});
 
