@@ -1,9 +1,12 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import logger from "./config/logger.js";
 import { registerTools } from "./tools/registerTool.js";
 import { registerPrompts } from "./prompts/registerPrompts.js";
 import { registerCampusTools } from "./tools/campusTool.js";
+import { validateAcceptHeader } from "./middleware/acceptValidation.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { EmbeddingsService } from "./services/embeddings.service.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -34,6 +37,8 @@ export function createMcpServer() {
 // Inicializa dependencias y levanta el servidor HTTP (único transporte).
 export async function startMcpServer() {
 
+    const isProd = process.env.NODE_ENV === "production";
+
     // Verificar conectividad con la BD
     try {
         const total = (await EmbeddingsService.getAllBuildings()).length;
@@ -45,6 +50,8 @@ export async function startMcpServer() {
 
     const app = express();
 
+    app.set("trust proxy", 1);
+
     // Mapa de sesiones activas: sessionId -> { server, transport, lastActivity }
     const sessions = new Map();
 
@@ -55,31 +62,57 @@ export async function startMcpServer() {
     // Heartbeat SSE para mantener vivos los streams de notificaciones
     const HEARTBEAT_MS = 20000;
 
-    // CORS, no es muy importante porque no se harán llamadas cross-origin desde el navegador en este ejemplo.
+    // Helmet
+    app.use(helmet());
+
+    // CORS restringido
     const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
         .split(",")
         .map(o => o.trim())
         .filter(Boolean);
 
     if (allowedOrigins.length === 0) {
-        logger.warn("CORS_ALLOWED_ORIGINS no definido: CORS abierto a cualquier origen (desarrollo)");
+        if (isProd) {
+            logger.warn("CORS_ALLOWED_ORIGINS no definido en produccion: CORS cerrado (fail-closed)");
+        } else {
+            logger.warn("CORS_ALLOWED_ORIGINS no definido: CORS abierto a cualquier origen (solo desarrollo)");
+        }
     }
 
     app.use(cors({
-        origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+        // prod sin whitelist -> false (deniega todo); dev sin whitelist -> true (abierto)
+        origin: allowedOrigins.length > 0 ? allowedOrigins : !isProd,
         methods: ["GET", "POST", "DELETE", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Accept", "Authorization", "Mcp-Session-Id", "ngrok-skip-browser-warning"],
         exposedHeaders: ["Mcp-Session-Id"],
         credentials: false,
     }));
 
-    app.use(express.json());
-
+    // Health check
     app.get("/health", (req, res) => {
         res.json({ status: "ok" });
     });
 
-    app.all("/mcp", async (req, res) => {
+    // Rate limiter
+    const mcpLimiter = rateLimit({
+        windowMs: 60 * 1000,        // ventana de 1 minuto
+        limit: 60,                  // 60 peticiones/min por IP (1 req/s sostenido)
+        standardHeaders: "draft-7", // cabeceras RateLimit-* estandar
+        legacyHeaders: false,       // sin X-RateLimit-* obsoletas
+        handler: (req, res) => {
+            logger.warn({ ip: req.ip, path: req.path }, "RATE  -> Limite de peticiones excedido");
+            res.status(429).json({
+                jsonrpc: "2.0",
+                error: { code: -32000, message: "Too many requests, slow down" },
+                id: null,
+            });
+        },
+    });
+    app.use("/mcp", mcpLimiter);
+
+    app.use(express.json());
+
+    app.all("/mcp", validateAcceptHeader, async (req, res) => {
         const ip = req.ip;
         const method = req.body?.method;
         const incomingSessionId = req.headers["mcp-session-id"];
@@ -129,13 +162,30 @@ export async function startMcpServer() {
         // ── DELETE -> cerrar sesion ────────────────────────────────────────
         if (req.method === "DELETE") {
             if (incomingSessionId && sessions.has(incomingSessionId)) {
+                const { server, transport } = sessions.get(incomingSessionId);
                 sessions.delete(incomingSessionId);
+
+                // Cerrar transporte y servidor libera streams SSE abiertos y referencias internas.
+                try {
+                    await transport.close();
+                    await server.close();
+                } catch (err) {
+                    logger.warn(
+                        { sid: sid(incomingSessionId), err: err.message },
+                        "[5/5] CLOSE -> Error cerrando transporte (sesion eliminada igualmente)"
+                    );
+                }
+
                 logger.info(
                     { sid: sid(incomingSessionId) },
                     "[5/5] CLOSE -> Sesion cerrada y eliminada"
                 );
+                return res.status(200).json({ status: "session closed" });
             }
-            return res.status(200).json({ status: "session closed" });
+
+            // Spec MCP: sessionId desconocido -> 404 para que el cliente sepa que debe re-inicializar.
+            logger.warn({ sid: sid(incomingSessionId), ip }, "[5/5] CLOSE -> DELETE con sesion desconocida");
+            return res.status(404).json({ error: "Session not found" });
         }
 
         // ── Peticiones con sesion existente ───────────────────────────────
@@ -260,7 +310,20 @@ export async function startMcpServer() {
             return;
         }
 
-        // ── Sin sesion -> stateless (clientes simples sin init previo) ────
+        // Sesion desconocida/ expirada -> 404 para que el cliente sepa que debe re-inicializar.
+        if (incomingSessionId) {
+            logger.warn(
+                { sid: sid(incomingSessionId), ip, method },
+                "[?]   STALE -> Mcp-Session-Id desconocido o expirado"
+            );
+            return res.status(404).json({
+                jsonrpc: "2.0",
+                error: { code: -32001, message: "Session not found, please re-initialize" },
+                id: null,
+            });
+        }
+
+        // Sin sesion -> modo STATELESS
         const sessionId = randomUUID();
         logger.info(
             { sid: sid(sessionId), method },
@@ -293,6 +356,11 @@ export async function startMcpServer() {
         for (const [sessionId, session] of sessions.entries()) {
             if (now - (session.lastActivity ?? 0) > SESSION_TTL_MS) {
                 sessions.delete(sessionId);
+
+                // Liberar streams SSE y referencias internas, no solo la entrada del Map.
+                session.transport.close().catch(() => {});
+                session.server.close().catch(() => {});
+
                 removed++;
                 logger.info(
                     { sid: sid(sessionId) },
