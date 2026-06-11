@@ -4,8 +4,8 @@ import logger from "./config/logger.js";
 import { registerTools } from "./tools/registerTool.js";
 import { registerPrompts } from "./prompts/registerPrompts.js";
 import { registerCampusTools } from "./tools/campusTool.js";
-import { CampusService } from "./services/campus.service.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { EmbeddingsService } from "./services/embeddings.service.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "crypto";
 
@@ -34,7 +34,14 @@ export function createMcpServer(relevantToolNames = null) {
 // Inicializa dependencias y levanta el servidor HTTP (único transporte).
 export async function startMcpServer() {
 
-    await CampusService.initialize();
+    // Verificar conectividad con la BD
+    try {
+        const total = (await EmbeddingsService.getAllBuildings()).length;
+        logger.info({ total }, "Conexion a BD realizada correctamente.");
+    } catch (err) {
+        logger.fatal({ err: err.message }, "No se puede conectar a PostgreSQL");
+        process.exit(1);
+    }
 
     const app = express();
 
