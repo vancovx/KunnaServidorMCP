@@ -7,6 +7,7 @@ import { securityHeaders, corsPolicy, mcpRateLimiter } from "./middleware/securi
 import { validateAcceptHeader } from "./middleware/acceptValidation.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { EmbeddingsService } from "./services/embeddings.service.js";
+import { bearerAuth } from "./middleware/auth.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "crypto";
 
@@ -67,6 +68,7 @@ export async function startMcpServer() {
     });
 
     app.use("/mcp", mcpRateLimiter);
+    app.use("/mcp", bearerAuth);
     app.use(express.json());
 
     app.all("/mcp", validateAcceptHeader, async (req, res) => {
