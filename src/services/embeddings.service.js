@@ -1,4 +1,3 @@
-// src/services/embeddings.service.js
 import { pipeline } from '@xenova/transformers';
 import pg from 'pg';
 import { readFile } from 'fs/promises';

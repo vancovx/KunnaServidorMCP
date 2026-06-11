@@ -17,7 +17,7 @@ function sid(sessionId) {
 
 
 // Instancia del servidor MCP con sus tools y prompts registrados.
-export function createMcpServer(relevantToolNames = null) {
+export function createMcpServer() {
     const server = new McpServer(
         { name: "mcp-server1-prueba", version: "1.0.0" },
         { capabilities: { tools: {}, prompts: {} } }
@@ -146,9 +146,8 @@ export async function startMcpServer() {
             // Refrescar marca de actividad
             session.lastActivity = Date.now();
 
-            // ── GET /mcp -> stream SSE de notificaciones servidor->cliente
-            //    Postman/undici matan streams idle, asi que mandamos
-            //    comentarios SSE periodicos para mantener viva la conexion.
+            // GET /mcp -> stream SSE de notificaciones servidor->cliente
+            // Postman mata streams idle, asi que mandamos comentarios SSE periodicos para mantener viva la conexion.
             if (req.method === "GET") {
                 logger.info(
                     { sid: sid(incomingSessionId) },

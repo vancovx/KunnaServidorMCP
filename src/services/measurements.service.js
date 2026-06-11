@@ -1,6 +1,5 @@
 // Rutas para obtener la información de la OpenAPI.
 import axios from 'axios';
-import dotenv from "dotenv";
 import { DateTime } from "luxon";
 import logger from "../config/logger.js";
 
