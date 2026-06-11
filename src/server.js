@@ -62,15 +62,24 @@ export async function startMcpServer() {
     const SESSION_CLEANUP_MS = 10 * 60 * 1000;
 
     // Heartbeat SSE para mantener vivos los streams de notificaciones
-    // (Postman/undici cortan streams idle a los ~60-120s)
     const HEARTBEAT_MS = 20000;
 
+    // CORS, no es muy importante porque no se harán llamadas cross-origin desde el navegador en este ejemplo.
+    const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+        .split(",")
+        .map(o => o.trim())
+        .filter(Boolean);
+
+    if (allowedOrigins.length === 0) {
+        logger.warn("CORS_ALLOWED_ORIGINS no definido: CORS abierto a cualquier origen (desarrollo)");
+    }
+
     app.use(cors({
-        origin: '*',
-        methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
-        allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'Mcp-Session-Id'],
-        exposedHeaders: ['Mcp-Session-Id'],
-        credentials: false
+        origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+        methods: ["GET", "POST", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Accept", "Authorization", "Mcp-Session-Id"],
+        exposedHeaders: ["Mcp-Session-Id"],
+        credentials: false,
     }));
 
     app.use(express.json());

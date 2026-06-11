@@ -11,5 +11,4 @@ src/data/
 examples/
 
 # Environment variable files
-src/config/
 .env
