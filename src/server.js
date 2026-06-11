@@ -3,7 +3,6 @@ import cors from "cors";
 import logger from "./config/logger.js";
 import { registerTools } from "./tools/registerTool.js";
 import { registerPrompts } from "./prompts/registerPrompts.js";
-import { EmbeddingsService } from "./services/embeddings.service.js";
 import { registerCampusTools } from "./tools/campusTool.js";
 import { CampusService } from "./services/campus.service.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -27,7 +26,7 @@ export function createMcpServer(relevantToolNames = null) {
         { capabilities: { tools: {}, prompts: {} } }
     );
 
-    registerTools(server, relevantToolNames);
+    registerTools(server);
     registerCampusTools(server);
     registerPrompts(server);
 
@@ -39,18 +38,6 @@ export function createMcpServer(relevantToolNames = null) {
 export async function startMcpServer() {
 
     await CampusService.initialize();
-
-    // ── Filtrado semántico de tools (opcional, controlado por entorno) ────
-    // Si MCP_TOOL_FILTER=true, una sesión puede iniciarse con un "foco"
-    // (POST /mcp?q=...) y el servidor expondrá en tools/list solo las tools de
-    // datos relevantes a ese texto, calculadas por embeddings. El origen del
-    // foco aquí es un parámetro explícito (demo); en un host real vendría de la
-    // conversación. Desactivado (por defecto) -> se exponen todas las tools.
-    const TOOL_FILTER_ENABLED   = process.env.MCP_TOOL_FILTER === "true";
-    const TOOL_FILTER_TOPK      = Number(process.env.MCP_TOOL_FILTER_TOPK) || 4;
-    const TOOL_FILTER_THRESHOLD = Number(process.env.MCP_TOOL_FILTER_THRESHOLD) || 0.35;
-
-    logger.info({ enabled: TOOL_FILTER_ENABLED }, "Filtrado semántico de tools");
 
     const app = express();
 
@@ -104,39 +91,7 @@ export async function startMcpServer() {
             );
 
             try {
-                // Filtrado opcional: si está activado y la sesión llega con un
-                // foco (?q=...), reducimos las tools de datos a las relevantes.
-                // Ante cualquier problema, fallback seguro -> todas las tools.
-                let relevantToolNames = null;
-                if (TOOL_FILTER_ENABLED) {
-                    const focus = typeof req.query.q === "string" ? req.query.q.trim() : "";
-                    if (focus) {
-                        try {
-                            const relevant = await EmbeddingsService.findRelevantTools(
-                                focus, TOOL_FILTER_TOPK, TOOL_FILTER_THRESHOLD
-                            );
-                            if (relevant.length > 0) {
-                                relevantToolNames = relevant.map(t => t.nombre);
-                                logger.info(
-                                    { sid: sid(sessionId), focus, tools: relevantToolNames },
-                                    "[1/5] INIT -> Toolset filtrado por foco semantico"
-                                );
-                            } else {
-                                logger.warn(
-                                    { sid: sid(sessionId), focus },
-                                    "[1/5] INIT -> Sin coincidencias, se exponen todas las tools"
-                                );
-                            }
-                        } catch (err) {
-                            logger.error(
-                                { sid: sid(sessionId), err },
-                                "[1/5] INIT -> Error filtrando, se exponen todas las tools"
-                            );
-                        }
-                    }
-                }
-
-                const server = createMcpServer(relevantToolNames);
+                const server = createMcpServer();
                 const transport = new StreamableHTTPServerTransport({
                     sessionIdGenerator: () => sessionId,
                 });

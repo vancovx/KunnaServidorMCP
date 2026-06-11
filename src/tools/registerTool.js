@@ -251,17 +251,8 @@ function withLogging(name, handler) {
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Registro de tools en el servidor MCP
-//  relevantToolNames = null  -> registra todas las tools
-//  relevantToolNames = [...] -> registra solo las indicadas
-// ─────────────────────────────────────────────────────────────────────────────
-export function registerTools(server, relevantToolNames = null) {
-    const toolsToRegister = relevantToolNames
-        ? ALL_TOOLS.filter(t => relevantToolNames.includes(t.name))
-        : ALL_TOOLS;
-
-    for (const tool of toolsToRegister) {
+export function registerTools(server) {
+    for (const tool of ALL_TOOLS) {
         server.registerTool(tool.name, tool.definition, withLogging(tool.name, tool.handler));
     }
 }
