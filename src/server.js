@@ -1,8 +1,3 @@
-// src/server.js
-// Construcción del servidor MCP y de la capa HTTP/transporte.
-// index.js solo arranca el proceso; aquí vive todo el "montaje" de la app.
-// Este módulo NO ejecuta nada al importarse: solo define y exporta funciones.
-
 import express from "express";
 import cors from "cors";
 import logger from "./config/logger.js";
