@@ -23,7 +23,13 @@ export function bearerAuth(req, res, next) {
     if (scheme !== "Bearer" || !token) {
         // WWW-Authenticate en el 401 es lo que exige RFC 6750 y la spec MCP;
         // ademas permite a clientes como Claude detectar que el server pide auth.
-        logger.warn({ ip: req.ip, path: req.path }, "AUTH -> Peticion sin Bearer token");
+        logger.warn({
+            ip: req.ip,
+            path: req.path,
+            hasAuthHeader: Boolean(header),   // ¿llegó el header siquiera?
+            scheme: scheme || "(vacio)",      // ¿qué scheme trae?
+            schemeLen: header.length,         // longitud total, sin revelar contenido
+        }, "AUTH -> Peticion sin Bearer token");
         res.set("WWW-Authenticate", 'Bearer realm="mcp"');
         return res.status(401).json({ error: "Unauthorized" });
     }
