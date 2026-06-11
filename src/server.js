@@ -10,16 +10,13 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { randomUUID } from "crypto";
 
 
-// Abreviar sessionId a los primeros 8 caracteres para los logs
+// Abreviar sessionId, que actua como credencial de sesion y no debe persistirse en logs
 function sid(sessionId) {
     return sessionId ? sessionId.slice(0, 8) : "--------";
 }
 
 
-// Crea una instancia del servidor MCP con sus tools y prompts registrados.
-//   relevantToolNames = null  -> registra todas las tools
-//   relevantToolNames = [...] -> registra solo las indicadas
-// Se exporta para poder construir el servidor de forma aislada (p. ej. en tests).
+// Instancia del servidor MCP con sus tools y prompts registrados.
 export function createMcpServer(relevantToolNames = null) {
     const server = new McpServer(
         { name: "mcp-server1-prueba", version: "1.0.0" },

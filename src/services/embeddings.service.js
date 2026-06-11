@@ -3,9 +3,7 @@ import { pipeline } from '@xenova/transformers';
 import pg from 'pg';
 import { readFile } from 'fs/promises';
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Modelo singleton — se carga una sola vez en toda la vida del proceso
-// ─────────────────────────────────────────────────────────────────────────────
 let embedder = null;
 
 async function getEmbedder() {
@@ -17,9 +15,8 @@ async function getEmbedder() {
     return embedder;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 //  Pool de PostgreSQL singleton
-// ─────────────────────────────────────────────────────────────────────────────
 let pool = null;
 
 function getPool() {
@@ -29,14 +26,8 @@ function getPool() {
     return pool;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  API pública del servicio
-// ─────────────────────────────────────────────────────────────────────────────
 export const EmbeddingsService = {
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  GENÉRICO
-    // ═══════════════════════════════════════════════════════════════════════
 
     // Genera un embedding para cualquier texto (vector de 768 dimensiones).
     async generate(text) {
@@ -45,10 +36,7 @@ export const EmbeddingsService = {
         return Array.from(output.data);
     },
 
-    // ═══════════════════════════════════════════════════════════════════════
     //  BUILDINGS (edificios de la UA)
-    // ═══════════════════════════════════════════════════════════════════════
-
     // Inserta o actualiza un array de edificios (sin generar embedding todavía).
     async upsertBuildings(buildings) {
         const client = await getPool().connect();
