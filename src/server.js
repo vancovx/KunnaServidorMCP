@@ -68,7 +68,7 @@ export async function startMcpServer() {
     app.use(cors({
         origin: allowedOrigins.length > 0 ? allowedOrigins : true,
         methods: ["GET", "POST", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Accept", "Authorization", "Mcp-Session-Id"],
+        allowedHeaders: ["Content-Type", "Accept", "Authorization", "Mcp-Session-Id", "ngrok-skip-browser-warning"],
         exposedHeaders: ["Mcp-Session-Id"],
         credentials: false,
     }));
