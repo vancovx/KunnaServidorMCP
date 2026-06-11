@@ -1,11 +1,9 @@
 import express from "express";
-import cors from "cors";
-import helmet from "helmet";
-import { rateLimit } from "express-rate-limit";
 import logger from "./config/logger.js";
 import { registerTools } from "./tools/registerTool.js";
 import { registerPrompts } from "./prompts/registerPrompts.js";
 import { registerCampusTools } from "./tools/campusTool.js";
+import { securityHeaders, corsPolicy, mcpRateLimiter } from "./middleware/security.js";
 import { validateAcceptHeader } from "./middleware/acceptValidation.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { EmbeddingsService } from "./services/embeddings.service.js";
@@ -37,8 +35,6 @@ export function createMcpServer() {
 // Inicializa dependencias y levanta el servidor HTTP (único transporte).
 export async function startMcpServer() {
 
-    const isProd = process.env.NODE_ENV === "production";
-
     // Verificar conectividad con la BD
     try {
         const total = (await EmbeddingsService.getAllBuildings()).length;
@@ -50,6 +46,9 @@ export async function startMcpServer() {
 
     const app = express();
 
+    // Detras de 1 proxy (ngrok / reverse proxy): req.ip = IP real del cliente.
+    // Usar 1 y no true: con true un cliente podria falsificar X-Forwarded-For
+    // para rotar de "IP" y esquivar el rate limiter.
     app.set("trust proxy", 1);
 
     // Mapa de sesiones activas: sessionId -> { server, transport, lastActivity }
@@ -62,54 +61,21 @@ export async function startMcpServer() {
     // Heartbeat SSE para mantener vivos los streams de notificaciones
     const HEARTBEAT_MS = 20000;
 
-    // Helmet
-    app.use(helmet());
+    // ── Pipeline de middlewares ────────────────────────────────────────────
+    // El ORDEN se lee aqui; la configuracion vive en src/middleware/.
+    app.use(securityHeaders);
+    app.use(corsPolicy);
 
-    // CORS restringido
-    const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
-        .split(",")
-        .map(o => o.trim())
-        .filter(Boolean);
-
-    if (allowedOrigins.length === 0) {
-        if (isProd) {
-            logger.warn("CORS_ALLOWED_ORIGINS no definido en produccion: CORS cerrado (fail-closed)");
-        } else {
-            logger.warn("CORS_ALLOWED_ORIGINS no definido: CORS abierto a cualquier origen (solo desarrollo)");
-        }
-    }
-
-    app.use(cors({
-        // prod sin whitelist -> false (deniega todo); dev sin whitelist -> true (abierto)
-        origin: allowedOrigins.length > 0 ? allowedOrigins : !isProd,
-        methods: ["GET", "POST", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Accept", "Authorization", "Mcp-Session-Id", "ngrok-skip-browser-warning"],
-        exposedHeaders: ["Mcp-Session-Id"],
-        credentials: false,
-    }));
-
-    // Health check
+    // Health check ANTES del rate limiter: los monitores pegan cada pocos
+    // segundos desde la misma IP y se auto-bloquearian (auto-DoS).
     app.get("/health", (req, res) => {
         res.json({ status: "ok" });
     });
 
-    // Rate limiter
-    const mcpLimiter = rateLimit({
-        windowMs: 60 * 1000,        // ventana de 1 minuto
-        limit: 60,                  // 60 peticiones/min por IP (1 req/s sostenido)
-        standardHeaders: "draft-7", // cabeceras RateLimit-* estandar
-        legacyHeaders: false,       // sin X-RateLimit-* obsoletas
-        handler: (req, res) => {
-            logger.warn({ ip: req.ip, path: req.path }, "RATE  -> Limite de peticiones excedido");
-            res.status(429).json({
-                jsonrpc: "2.0",
-                error: { code: -32000, message: "Too many requests, slow down" },
-                id: null,
-            });
-        },
-    });
-    app.use("/mcp", mcpLimiter);
+    app.use("/mcp", mcpRateLimiter);
 
+    // Parsear el body DESPUES del limiter: si una IP esta bloqueada,
+    // no gastamos CPU parseando su JSON.
     app.use(express.json());
 
     app.all("/mcp", validateAcceptHeader, async (req, res) => {
@@ -165,7 +131,9 @@ export async function startMcpServer() {
                 const { server, transport } = sessions.get(incomingSessionId);
                 sessions.delete(incomingSessionId);
 
-                // Cerrar transporte y servidor libera streams SSE abiertos y referencias internas.
+                // Cerrar transporte y servidor libera streams SSE abiertos y
+                // referencias internas; sin esto la sesion "muere" pero sus
+                // recursos viven hasta el GC / timeout del socket.
                 try {
                     await transport.close();
                     await server.close();
@@ -183,7 +151,8 @@ export async function startMcpServer() {
                 return res.status(200).json({ status: "session closed" });
             }
 
-            // Spec MCP: sessionId desconocido -> 404 para que el cliente sepa que debe re-inicializar.
+            // Spec MCP: sessionId desconocido -> 404 para que el cliente
+            // sepa que debe re-inicializar.
             logger.warn({ sid: sid(incomingSessionId), ip }, "[5/5] CLOSE -> DELETE con sesion desconocida");
             return res.status(404).json({ error: "Session not found" });
         }
@@ -310,7 +279,8 @@ export async function startMcpServer() {
             return;
         }
 
-        // Sesion desconocida/ expirada -> 404 para que el cliente sepa que debe re-inicializar.
+        // Header presente pero sesion desconocida/expirada -> 404 (spec MCP):
+        // el cliente debe re-inicializar, no operar a ciegas en stateless.
         if (incomingSessionId) {
             logger.warn(
                 { sid: sid(incomingSessionId), ip, method },
@@ -323,7 +293,18 @@ export async function startMcpServer() {
             });
         }
 
-        // Sin sesion -> modo STATELESS
+        // ── Sin sesion (sin header) -> modo STATELESS (fallback deliberado) ─
+        //
+        // DECISIÓN DE DISEÑO: las peticiones sin header Mcp-Session-Id se
+        // atienden en modo stateless (sessionIdGenerator: undefined). Esto
+        // permite que clientes simples (curl, scripts, health-checkers MCP)
+        // hagan llamadas puntuales sin el handshake initialize.
+        //
+        // Trade-offs aceptados:
+        //  - Coste: se crea un McpServer + transport nuevos por peticion.
+        //  - Sin estado entre llamadas ni notificaciones servidor->cliente.
+        //  - Si el trafico stateless creciera, cachear definiciones de tools
+        //    o exigir sesion seria el siguiente paso.
         const sessionId = randomUUID();
         logger.info(
             { sid: sid(sessionId), method },
@@ -357,7 +338,8 @@ export async function startMcpServer() {
             if (now - (session.lastActivity ?? 0) > SESSION_TTL_MS) {
                 sessions.delete(sessionId);
 
-                // Liberar streams SSE y referencias internas, no solo la entrada del Map.
+                // Igual que en el DELETE: liberar streams SSE y referencias
+                // internas, no solo la entrada del Map.
                 session.transport.close().catch(() => {});
                 session.server.close().catch(() => {});
 
@@ -374,7 +356,7 @@ export async function startMcpServer() {
     }, SESSION_CLEANUP_MS);
     cleanupInterval.unref?.();
 
-    // ── Arranque del servidor HTTP con timeouts adecuados para SSE ────────
+    // Arranque del servidor HTTP 
     const port = process.env.PORT || 3000;
     const httpServer = app.listen(port, '0.0.0.0', () => {
         logger.info({ port, env: process.env.NODE_ENV }, "Servidor MCP listo");
