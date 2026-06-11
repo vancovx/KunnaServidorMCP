@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { CampusService } from "../services/campus.service.js";
 import { EmbeddingsService } from "../services/embeddings.service.js";
 import logger from "../config/logger.js";
 
@@ -17,6 +16,26 @@ function withLogging(name, handler) {
             throw err;
         }
     };
+}
+
+// Extrae un codigo SIGUA de la query si lo hay: "0014", "14", "edificio 14", "sigua 0014".
+// Devuelve el codigo normalizado a 4 digitos o null.
+function extractSiguaCode(query) {
+    const normalized = query
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const digits = normalized.replace(/\s/g, "");
+    if (/^\d{1,4}$/.test(digits)) return digits.padStart(4, "0");
+
+    const match = normalized.match(/(?:edificio|sigua|codigo)\s*(\d{1,4})/);
+    if (match) return match[1].padStart(4, "0");
+
+    return null;
 }
 
 export function registerCampusTools(server) {
@@ -55,80 +74,56 @@ export function registerCampusTools(server) {
         withLogging("search-campus-buildings", async ({ query, limit }) => {
             const maxResults = limit ?? 5;
 
-            // 1. Intento por código SIGUA 
-            const codeMatch = CampusService.matchByCode(query);
-            if (codeMatch) {
-                logger.debug({ query, id: codeMatch.id }, "Match directo por codigo SIGUA");
-                return {
-                    content: [{
-                        type: "text",
-                        text: JSON.stringify({
-                            query,
-                            num_resultados: 1,
-                            tipo_busqueda: "codigo_sigua",
-                            resultados: [{
-                                codigo_sigua: codeMatch.id,
-                                nombre: codeMatch.nombre,
-                                plantas: codeMatch.plantas,
-                                num_plantas: codeMatch.num_plantas,
-                                centro: codeMatch.center,
-                                bbox: codeMatch.bbox,
-                                score: "100%",
-                                tipo_match: "exact_code"
-                            }]
-                        }, null, 2)
-                    }]
-                };
+            // 1. Intento por codigo SIGUA (lookup exacto en BD)
+            const sigua = extractSiguaCode(query);
+            if (sigua) {
+                const b = await EmbeddingsService.getBuildingBySigua(sigua);
+                if (b) {
+                    return { content: [{ type: "text", text: JSON.stringify({
+                        query,
+                        num_resultados: 1,
+                        tipo_busqueda: "codigo_sigua",
+                        resultados: [{
+                            codigo_sigua: b.sigua,
+                            nombre: b.nombre,
+                            plantas: b.plantas,
+                            num_plantas: b.plantas?.length ?? 0,
+                            centro: { lat: b.center_lat, lon: b.center_lon },
+                            score: "100%",
+                            tipo_match: "exact_code"
+                        }]
+                    }, null, 2) }] };
+                }
+                // Si el codigo no existe, caemos a la busqueda semantica igualmente
             }
 
-            // 2. Búsqueda semántica por embeddings 
+            // 2. Busqueda semantica
             const semanticResults = await EmbeddingsService.findRelevantBuildings(query, maxResults, 0.3);
 
             if (semanticResults.length === 0) {
-                // Sin matches semánticos: devolver el listado completo como sugerencia
-                const all = CampusService.getAllBuildings();
-                logger.warn({ query }, "Busqueda semantica sin resultados, devolviendo todos los edificios");
-                return {
-                    content: [{
-                        type: "text",
-                        text: JSON.stringify({
-                            message: `No se ha encontrado ningún edificio que coincida con "${query}".`,
-                            sugerencia: "Estos son los edificios disponibles:",
-                            edificios_disponibles: all.map(b => ({
-                                codigo_sigua: b.id,
-                                nombre: b.nombre
-                            }))
-                        }, null, 2)
-                    }]
-                };
+                const all = await EmbeddingsService.getAllBuildings();
+                logger.warn({ query }, "Busqueda semantica sin resultados, devolviendo listado");
+                return { content: [{ type: "text", text: JSON.stringify({
+                    message: `No se ha encontrado ningun edificio que coincida con "${query}".`,
+                    sugerencia: "Estos son los edificios disponibles:",
+                    edificios_disponibles: all.map(b => ({ codigo_sigua: b.sigua, nombre: b.nombre }))
+                }, null, 2) }] };
             }
 
-            // Enriquecer los resultados semánticos con datos en memoria (bbox, plantas, etc.)
-            const enriched = semanticResults.map(r => {
-                const inMemory = CampusService.getBuildingById(r.sigua);
-                return {
+            return { content: [{ type: "text", text: JSON.stringify({
+                query,
+                num_resultados: semanticResults.length,
+                tipo_busqueda: "semantica",
+                resultados: semanticResults.map(r => ({
                     codigo_sigua: r.sigua,
                     nombre: r.nombre,
-                    plantas: inMemory?.plantas ?? r.plantas ?? [],
-                    num_plantas: inMemory?.num_plantas ?? (r.plantas?.length ?? 0),
-                    centro: inMemory?.center ?? { lat: r.center_lat, lon: r.center_lon },
-                    bbox: inMemory?.bbox ?? null,
+                    plantas: r.plantas ?? [],
+                    num_plantas: r.plantas?.length ?? 0,
+                    centro: { lat: r.center_lat, lon: r.center_lon },
                     score: Math.round(r.similarity * 100) + "%",
                     tipo_match: "semantic"
-                };
-            });
-
-            return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify({
-                        query,
-                        num_resultados: enriched.length,
-                        tipo_busqueda: "semantica",
-                        resultados: enriched
-                    }, null, 2)
-                }]
-            };
+                }))
+            }, null, 2) }] };
         })
     );
 }

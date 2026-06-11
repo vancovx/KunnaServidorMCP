@@ -37,6 +37,28 @@ export const EmbeddingsService = {
     },
 
     //  BUILDINGS (edificios de la UA)
+    // Obtiene un edificio por su codigo SIGUA exacto.
+    async getBuildingBySigua(sigua) {
+        const { rows } = await getPool().query(
+            `SELECT sigua, nombre, plantas, center_lat, center_lon
+            FROM buildings
+            WHERE sigua = $1`,
+            [sigua]
+        );
+        return rows[0] ?? null;
+    },
+
+    // Lista todos los edificios (para listados y sugerencias).
+    async getAllBuildings() {
+        const { rows } = await getPool().query(
+            `SELECT sigua, nombre, plantas, center_lat, center_lon
+            FROM buildings
+            ORDER BY sigua`
+        );
+        return rows;
+    },
+
+
     // Inserta o actualiza un array de edificios (sin generar embedding todavía).
     async upsertBuildings(buildings) {
         const client = await getPool().connect();
