@@ -75,12 +75,14 @@ const ALL_TOOLS = [
         name: "discover-collection",
         definition: {
             description:
-                "Devuelve toda la informacion de una coleccion IoT en una sola llamada: " +
-                "descripcion general, lista de dispositivos (con IDs y alias) y magnitudes disponibles. " +
-                "Usar como PRIMER PASO para cualquier consulta: " +
-                "'que datos hay?', 'que sensores existen?', 'que mide esta coleccion?', " +
-                "'que dispositivos hay en energia?', 'que magnitudes tiene el sensor X?'. " +
-                "Tambien util para obtener IDs de dispositivos antes de consultar datos con query-data o query-aggregation.",
+                "Devuelve una visION GENERAL de una coleccion IoT: su descripcion y las magnitudes disponibles. " +
+                "USAR solo para orientarse sobre QUE mide una coleccion o QUE magnitudes admite antes de consultar " +
+                "(p. ej. '¿que magnitudes tiene roomsensors?', '¿que mide la coleccion energy?'). " +
+                "NO USAR como paso previo para descubrir los dispositivos de un edificio ni para obtener metadatos de " +
+                "dispositivos: esa ruta es ineficiente. Para descubrir dispositivos y sus metadatos (alias, ubicacion, " +
+                "SIGUA, geolocalizacion) usar directamente query-data con include_metadata=true en una sola llamada. " +
+                "Ejemplo VALIDO: '¿que se puede medir en la coleccion water?'. " +
+                "Ejemplo INVALIDO: '¿que contadores de agua hay en el edificio 0038?' -> usar query-data.",
             inputSchema: z.object({
                 collection: collectionEnum,
                 device_id: z.string().optional().describe(
@@ -116,12 +118,17 @@ const ALL_TOOLS = [
         name: "get-device-details",
         definition: {
             description:
-                "Devuelve los detalles completos de un dispositivo especifico: " +
-                "nombre, alias, geolocalizacion (lat/lon), ubicacion dentro del edificio, " +
-                "organizacion, tipo de metrica, codigo SIGUA del edificio y campos personalizados. " +
-                "Usar cuando el usuario pregunta: 'donde esta este sensor?', 'que es el dispositivo X?', " +
-                "'informacion del contador', 'ubicacion del equipo', 'detalles del sensor'. " +
-                "Requiere el device_id, que se obtiene de discover-collection.",
+                "Devuelve los detalles completos de UN UNICO dispositivo ya conocido: nombre, alias, " +
+                "geolocalizacion (lat/lon), ubicacion dentro del edificio, organizacion, tipo de metrica, " +
+                "codigo SIGUA y campos personalizados. " +
+                "USAR EXCLUSIVAMENTE cuando ya se dispone del device_id exacto y se necesita ampliar la informacion " +
+                "de ESE dispositivo concreto (p. ej. 'dame todos los detalles del dispositivo XYZ'). " +
+                "NO USAR para descubrir dispositivos, para listar los dispositivos de una coleccion, ni para averiguar " +
+                "que contadores/sensores tiene un edificio: para todo eso usar query-data con include_metadata=true, " +
+                "que devuelve todos los dispositivos y sus metadatos en UNA sola llamada. " +
+                "Si la informacion puede obtenerse con una unica llamada a query-data, NO hagas multiples llamadas aqui. " +
+                "Ejemplo VALIDO: ya tienes device_id='ABC123' y quieres su ubicacion exacta. " +
+                "Ejemplo INVALIDO: '¿que dispositivos hay en el edificio 0025?' -> usar query-data.",
             inputSchema: z.object({
                 collection: collectionEnum,
                 device_id: z.string().describe(
@@ -143,13 +150,21 @@ const ALL_TOOLS = [
         name: "query-data",
         definition: {
             description:
-                "Consulta datos CRUDOS de mediciones en series temporales. " +
-                "Devuelve cada lectura individual con su timestamp, valor y unidad. " +
-                "Usar cuando el usuario necesita: valores exactos, datos sin procesar, " +
-                "exportar lecturas, ver cada medicion individual, detectar valores puntuales. " +
-                "Para obtener estadisticas (media, maximo, minimo) o evolucion por horas/dias, " +
-                "usar query-aggregation en su lugar, que es mas eficiente. " +
-                "El rango temporal se define con start/end (fechas absolutas) o last (minutos hacia atras).",
+                "Herramienta CANONICA para (a) descubrir dispositivos de una coleccion junto con sus metadatos y " +
+                "(b) consultar lecturas CRUDAS individuales (timestamp, valor, unidad). " +
+                "USAR cuando el usuario quiera: saber que dispositivos/sensores/contadores existen, " +
+                "descubrir los contadores o sensores de un edificio, conocer la ubicacion de un dispositivo, " +
+                "obtener alias, geolocalizacion, codigo SIGUA, organizacion u otros metadatos contextuales, " +
+                "filtrar dispositivos por edificio/SIGUA/organizacion, o ver valores exactos sin procesar. " +
+                "Para DESCUBRIR dispositivos de una coleccion o de un edificio, hazlo en UNA SOLA llamada con " +
+                "include_metadata=true y un limit alto (p. ej. 800): devuelve TODOS los dispositivos con sus " +
+                "metadatos completos en una sola peticion; despues filtra in-memory por SIGUA/alias. " +
+                "NO encadenes multiples llamadas a get-device-details para esto. " +
+                "NO USAR para estadisticas (media, max, min, suma) ni para evolucion horaria/diaria ni tendencias: " +
+                "para eso usar query-aggregation, que es mas eficiente. " +
+                "Ejemplo VALIDO: '¿que contadores electricos tiene el Aulario II y donde estan?' -> " +
+                "query-data(collection='energy', limit=800, include_metadata=true). " +
+                "Ejemplo INVALIDO: 'consumo medio diario del edificio' -> usar query-aggregation.",
             inputSchema: z.object({
                 collection: collectionEnum,
                 device_id: z.string().optional().describe(
