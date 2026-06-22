@@ -5,11 +5,10 @@ dist/
 .pnpm-workspace.yaml
 
 # JSON de los edificios
-data/
+src/data/
 
 # Pruebas
 examples/
 
 # Environment variable files
-src/config/
 .env
