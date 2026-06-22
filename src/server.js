@@ -20,7 +20,7 @@ function sid(sessionId) {
 // Instancia del servidor MCP con sus tools y prompts registrados.
 export function createMcpServer() {
     const server = new McpServer(
-        { name: "mcp-server1-prueba", version: "1.0.0" },
+        { name: "KunnaServidorMCP", version: "1.0.0" },
         { capabilities: { tools: {}, prompts: {} } }
     );
 
