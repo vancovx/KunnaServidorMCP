@@ -10,7 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { EmbeddingsService } from "./services/embeddings.service.js";
 import { bearerAuth } from "./middleware/auth.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { SessionManager } from "./sessionManager.js";
+import { SessionManager } from "./SessionManager.js";
 
 // Abreviar sessionId: actua como credencial de sesion y no debe persistirse en logs.
 function sid(sessionId) {
