@@ -1,21 +1,18 @@
-# Kunna · Servidor MCP del campus
+# Servidor MCP de Smart University, Kunna
 
-Servidor [MCP (Model Context Protocol)](https://modelcontextprotocol.io) que expone los datos IoT del campus de la **Universidad de Alicante** (consumo eléctrico, agua, meteorología, sensores ambientales de aulas y WiFi) a un cliente de IA, junto con búsqueda semántica de edificios y prompts listos para generar informes.
+Servidor [MCP (Model Context Protocol)](https://modelcontextprotocol.io) que expone datos IoT del campus de la **Universidad de Alicante** (consumo eléctrico, agua, meteorología, sensores ambientales de aulas y WiFi), junto con búsqueda semántica de edificios y prompts listos para generar informes.
 
 La idea: en lugar de hablar con la API de medición a pelo, un modelo conectado a este servidor puede resolver consultas como *"dame el informe de consumo eléctrico de la poli en junio"* o *"¿hay alguna fuga de agua en derecho?"* encadenando las herramientas que se exponen aquí.
 
-> 🎓 **Contexto.** Este repositorio es la parte de **servidor** de un Trabajo de Fin de Grado (TFG). El **cliente** (la interfaz que consume este MCP) vive en un repositorio aparte: [`enlace-al-repo-del-cliente`](#). Este repo solo se encarga del backend MCP; el cliente se encarga de la conversación y de pintar los resultados.
+> Este repositorio es parte de un Trabajo de Fin de Grado (TFG). Existe también un cliente desarrollado para completar el ciclo de desarrollo de la arquitectura MCP: [`https://github.com/vancovx/KunnaClienteMCP`](#).
 
----
 
-## ¿Qué hace?
+## ¿Qué hace este servidor?
 
-- **Resuelve edificios en lenguaje natural.** Entiende código SIGUA (`0025`), nombre oficial (`Escuela Politécnica Superior I`) o descripción libre (`la poli`, `donde se imparte enfermería`) y lo traduce al edificio correcto usando embeddings.
 - **Consulta datos de medición** de varias colecciones IoT (energía, agua, clima, sensores de sala, WiFi) a través de la API de Kunna: lecturas crudas, agregados por hora/día, máximos, mínimos, sumas, etc.
 - **Genera informes** mediante *prompts* predefinidos: consumo eléctrico mensual, consumo de agua con detección de fugas y confort ambiental de un aula.
+- **Resuelve edificios en lenguaje natural.** Entiende código SIGUA (`0025`), nombre oficial (`Escuela Politécnica Superior I`) o descripción libre (`la poli`, `donde se imparte enfermería`) y lo traduce al edificio correcto usando embeddings.
 - Todo ello sobre **Streamable HTTP**, con sesiones, autenticación por token, rate limiting y logging estructurado.
-
----
 
 ## Stack
 
@@ -71,10 +68,10 @@ La idea: en lugar de hablar con la API de medición a pelo, un modelo conectado 
         └── test-embeddings-buildings.js  # Prueba rápida de la búsqueda semántica
 ```
 
-**En resumen de carpetas:**
+**Resumen de carpetas:**
 
 - **`data/`** — los datos geográficos de los edificios. Pones los GeoJSON en `buildings/`, los fusionas y obtienes `edificios.json`, que es lo que se carga a la base de datos.
-- **`src/config/`** — configuración transversal (de momento, solo el logger).
+- **`src/config/`** — configuración del logger.
 - **`src/middleware/`** — todo lo que se ejecuta *antes* de llegar a la lógica MCP: seguridad, autenticación y validación de la petición.
 - **`src/tools/`** — las herramientas que el modelo puede invocar. Lo que el cliente realmente "llama".
 - **`src/prompts/`** — plantillas de instrucciones reutilizables que orquestan varias tools para producir un informe completo.
@@ -117,7 +114,7 @@ CREATE TABLE buildings (
 );
 ```
 
-> El modelo de embeddings produce vectores de **768 dimensiones**; si cambias de modelo, ajusta el tamaño de la columna.
+> El modelo de embeddings produce vectores de **768 dimensiones**.
 
 ### 3. Variables de entorno
 
@@ -127,7 +124,6 @@ Crea un `.env` en la raíz:
 # --- Servidor ---
 PORT=3000
 NODE_ENV=development            # 'development' desactiva la auth Bearer
-LOG_LEVEL=debug                 # opcional; por defecto debug en dev, info en prod
 
 # --- Base de datos ---
 DATABASE_URL=postgres://usuario:password@localhost:5432/tu_base
@@ -209,7 +205,7 @@ Salvo en `development`, todas las peticiones a `/mcp` requieren cabecera `Author
 
 ---
 
-## Cómo encaja todo (flujo típico)
+## Flujo típico
 
 1. El cliente pregunta algo en lenguaje natural (*"informe de luz de la poli en junio"*).
 2. El prompt orquesta los pasos: `search-campus-buildings` resuelve el edificio → `query-data` descubre sus contadores → `query-aggregation` saca los consumos.
@@ -219,9 +215,6 @@ Salvo en `development`, todas las peticiones a `/mcp` requieren cabecera `Author
 ---
 
 ## Notas
-
-- **Sesiones.** El servidor mantiene sesiones MCP con TTL (1 h de inactividad), limpieza periódica y heartbeat SSE para no perder conexiones detrás de proxies. Si llega una petición sin sesión, se atiende en modo *stateless* efímero.
-- **Logging.** En desarrollo el log sale formateado y con color; en producción es JSON plano (mejor para agregadores). Tokens, contraseñas y cabeceras de autorización se redactan automáticamente.
 - **Certificados TLS.** En `index.js` se desactiva la verificación de certificados (`NODE_TLS_REJECT_UNAUTHORIZED = '0'`) como apaño temporal mientras se arregla el certificado de la API externa. Conviene quitarlo en cuanto se resuelva.
 
 ---
