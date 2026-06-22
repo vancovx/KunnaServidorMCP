@@ -2,7 +2,8 @@
 
 Servidor [MCP (Model Context Protocol)](https://modelcontextprotocol.io) que expone datos IoT del campus de la **Universidad de Alicante** (consumo eléctrico, agua, meteorología, sensores ambientales de aulas y WiFi), junto con búsqueda semántica de edificios y prompts listos para generar informes.
 
-La idea: en lugar de hablar con la API de medición a pelo, un modelo conectado a este servidor puede resolver consultas como *"dame el informe de consumo eléctrico de la poli en junio"* o *"¿hay alguna fuga de agua en derecho?"* encadenando las herramientas que se exponen aquí.
+El objetivo de este servidor es facilitar el acceso a la información de las APIs de medición de la universidad sin necesidad de interactuar directamente con ellas. Gracias a las herramientas que expone, es posible realizar consultas en lenguaje natural y obtener información de forma sencilla, acercando estos datos a usuarios sin conocimientos técnicos y eliminando la complejidad de trabajar directamente con las APIs.
+
 
 > Este repositorio es parte de un Trabajo de Fin de Grado (TFG). Existe también un cliente desarrollado para completar el ciclo de desarrollo de la arquitectura MCP: [`https://github.com/vancovx/KunnaClienteMCP`](#).
 
@@ -14,7 +15,7 @@ La idea: en lugar de hablar con la API de medición a pelo, un modelo conectado 
 - **Resuelve edificios en lenguaje natural.** Entiende código SIGUA (`0025`), nombre oficial (`Escuela Politécnica Superior I`) o descripción libre (`la poli`, `donde se imparte enfermería`) y lo traduce al edificio correcto usando embeddings.
 - Todo ello sobre **Streamable HTTP**, con sesiones, autenticación por token, rate limiting y logging estructurado.
 
-## Stack
+## Stack tecnológico
 
 | Pieza | Tecnología |
 |---|---|
@@ -78,7 +79,6 @@ La idea: en lugar de hablar con la API de medición a pelo, un modelo conectado 
 - **`src/services/`** — la lógica que habla con el mundo exterior: la API de Kunna y la base de datos de embeddings.
 - **`src/scripts/`** — utilidades que se lanzan a mano (no forman parte del servidor en ejecución).
 
----
 
 ## Requisitos
 
@@ -86,7 +86,6 @@ La idea: en lugar de hablar con la API de medición a pelo, un modelo conectado 
 - PostgreSQL con la extensión **pgvector** instalada.
 - Acceso a la API de Kunna y un token por cada colección que quieras usar.
 
----
 
 ## Puesta en marcha
 
@@ -166,10 +165,6 @@ node src/scripts/test-embeddings-buildings.js
 node index.js
 ```
 
-Verás un log indicando el puerto y el entorno. El servidor escucha en `0.0.0.0:<PORT>`.
-
----
-
 ## Endpoints
 
 | Método | Ruta | Para qué |
@@ -181,7 +176,6 @@ Verás un log indicando el puerto y el entorno. El servidor escucha en `0.0.0.0:
 
 Salvo en `development`, todas las peticiones a `/mcp` requieren cabecera `Authorization: Bearer <MCP_AUTH_TOKEN>`.
 
----
 
 ## Capacidades MCP
 
@@ -203,7 +197,6 @@ Salvo en `development`, todas las peticiones a `/mcp` requieren cabecera `Author
 | `informe-agua-edificio-mensual` | Informe mensual de agua + detección de fugas. |
 | `informe-confort-aula` | Análisis de CO₂, temperatura, humedad y VOC de un aula según normativa. |
 
----
 
 ## Flujo típico
 
@@ -212,18 +205,16 @@ Salvo en `development`, todas las peticiones a `/mcp` requieren cabecera `Author
 3. El servidor habla con la API de Kunna y con la base de datos de embeddings según haga falta.
 4. El modelo redacta el informe con la estructura definida en el prompt.
 
----
 
 ## Notas
 - **Certificados TLS.** En `index.js` se desactiva la verificación de certificados (`NODE_TLS_REJECT_UNAUTHORIZED = '0'`) como apaño temporal mientras se arregla el certificado de la API externa. Conviene quitarlo en cuanto se resuelva.
 
----
 
-## TFG
+## Trabajo de Fin de Grado
 
 Proyecto desarrollado como Trabajo de Fin de Grado en la Universidad de Alicante.
 
 - **Servidor (este repo):** servidor MCP de datos IoT del campus.
-- **Cliente:** [`enlace-al-repo-del-cliente`](#).
-- **Autor/a:** _(tu nombre)_
-- **Tutor/a:** _(nombre del tutor)_
+- **Cliente:** [`https://github.com/vancovx/KunnaClienteMCP`](#).
+- **Autora:** Vanessa Covrig Roibu
+- **Tutor:** Francisco Maciá Pérez
