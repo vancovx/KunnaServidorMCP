@@ -182,7 +182,7 @@ export async function startMcpServer() {
         const total = (await EmbeddingsService.getAllBuildings()).length;
         logger.info({ total }, "Conexion a BD realizada correctamente.");
     } catch (err) {
-        logger.fatal({ err: err.message }, "No se puede conectar a PostgreSQL");
+        logger.fatal({ err: err.message, stack: err.stack, errors: err.errors, code: err.code }, "No se puede conectar a PostgreSQL");
         process.exit(1);
     }
 
