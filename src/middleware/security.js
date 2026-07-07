@@ -6,7 +6,10 @@ import logger from "../config/logger.js";
 const isProd = process.env.NODE_ENV === "production";
 
 // Cabeceras HTTP seguras 
-export const securityHeaders = helmet();
+export const securityHeaders = helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: false,
+});
 
 // CORS restringido
 const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
@@ -25,7 +28,7 @@ if (allowedOrigins.length === 0) {
 export const corsPolicy = cors({
     origin: allowedOrigins.length > 0 ? allowedOrigins : !isProd,
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Accept", "Authorization", "Mcp-Session-Id", "ngrok-skip-browser-warning"],
+    allowedHeaders: ["Content-Type", "Accept", "Authorization", "Mcp-Session-Id", "Mcp-Protocol-Version", "ngrok-skip-browser-warning"],
     exposedHeaders: ["Mcp-Session-Id"],
     credentials: false,
 });

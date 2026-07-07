@@ -16,6 +16,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@xenova/transformers": "^2.17.2",
     "axios": "^1.13.5",
+    "cors": "^2.8.6",
     "crypto": "^1.0.1",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
