@@ -19,7 +19,7 @@ const collectionEnum = z.enum([
     "wifi",
     //"gva_weather",
 ]).describe(
-    `Coleccion de datos IoT a consultar. Selecciona segun el tipo de consulta del usuario:\n` +
+    `Colección de datos IoT a consultar. Selecciona segun el tipo de consulta del usuario:\n` +
 
     `- 'bim': Sensores IoT de suelo Dragino LSE01 en jardines del campus y caudalimetro CZUS/50. ` +
         `Miden humedad del suelo, temperatura del suelo y conductividad electrica (tecnologia FDR con compensacion por temperatura y calibracion de fabrica para suelos minerales). ` +
@@ -75,14 +75,14 @@ const ALL_TOOLS = [
         name: "discover-collection",
         definition: {
             description:
-                "Devuelve una visION GENERAL de una coleccion IoT: su descripcion y las magnitudes disponibles. " +
-                "USAR solo para orientarse sobre QUE mide una coleccion o QUE magnitudes admite antes de consultar " +
-                "(p. ej. '¿que magnitudes tiene roomsensors?', '¿que mide la coleccion energy?'). " +
+                "Devuelve una visión general de una colección IoT: su descripción y las magnitudes disponibles. " +
+                "USAR solo para orientarse sobre QUÉ mide una colección o qué magnitudes admite antes de consultar " +
+                "(p. ej. '¿qué magnitudes tiene roomsensors?', '¿qué mide la colección energy?'). " +
                 "NO USAR como paso previo para descubrir los dispositivos de un edificio ni para obtener metadatos de " +
-                "dispositivos: esa ruta es ineficiente. Para descubrir dispositivos y sus metadatos (alias, ubicacion, " +
-                "SIGUA, geolocalizacion) usar directamente query-data con include_metadata=true en una sola llamada. " +
-                "Ejemplo VALIDO: '¿que se puede medir en la coleccion water?'. " +
-                "Ejemplo INVALIDO: '¿que contadores de agua hay en el edificio 0038?' -> usar query-data.",
+                "dispositivos: esa ruta es ineficiente. Para descubrir dispositivos y sus metadatos (alias, ubicación, " +
+                "SIGA, geolocalización) usar directamente query-data con include_metadata=true en una sola llamada. " +
+                "Ejemplo VÁLIDO: '¿qué se puede medir en la colección water?'. " +
+                "Ejemplo INVÁLIDO: '¿qué contadores de agua hay en el edificio 0038?' -> usar query-data.",
             inputSchema: z.object({
                 collection: collectionEnum,
                 device_id: z.string().optional().describe(
@@ -118,17 +118,17 @@ const ALL_TOOLS = [
         name: "get-device-details",
         definition: {
             description:
-                "Devuelve los detalles completos de UN UNICO dispositivo ya conocido: nombre, alias, " +
-                "geolocalizacion (lat/lon), ubicacion dentro del edificio, organizacion, tipo de metrica, " +
-                "codigo SIGUA y campos personalizados. " +
-                "USAR EXCLUSIVAMENTE cuando ya se dispone del device_id exacto y se necesita ampliar la informacion " +
+                "Devuelve los detalles completos de un único dispositivo ya conocido: nombre, alias, " +
+                "geolocalización (lat/lon), ubicación dentro del edificio, organización, tipo de métrica, " +
+                "código SIGUA y campos personalizados. " +
+                "USAR EXCLUSIVAMENTE cuando ya se dispone del device_id exacto y se necesita ampliar la información " +
                 "de ESE dispositivo concreto (p. ej. 'dame todos los detalles del dispositivo XYZ'). " +
-                "NO USAR para descubrir dispositivos, para listar los dispositivos de una coleccion, ni para averiguar " +
-                "que contadores/sensores tiene un edificio: para todo eso usar query-data con include_metadata=true, " +
+                "NO USAR para descubrir dispositivos, para listar los dispositivos de una colección, ni para averiguar " +
+                "qué contadores/sensores tiene un edificio: para todo eso usar query-data con include_metadata=true, " +
                 "que devuelve todos los dispositivos y sus metadatos en UNA sola llamada. " +
-                "Si la informacion puede obtenerse con una unica llamada a query-data, NO hagas multiples llamadas aqui. " +
-                "Ejemplo VALIDO: ya tienes device_id='ABC123' y quieres su ubicacion exacta. " +
-                "Ejemplo INVALIDO: '¿que dispositivos hay en el edificio 0025?' -> usar query-data.",
+                "Si la información puede obtenerse con una única llamada a query-data, NO hagas múltiples llamadas aquí. " +
+                "Ejemplo VÁLIDO: ya tienes device_id='ABC123' y quieres su ubicación exacta. " +
+                "Ejemplo INVÁLIDO: '¿qué dispositivos hay en el edificio 0025?' -> usar query-data.",
             inputSchema: z.object({
                 collection: collectionEnum,
                 device_id: z.string().describe(
@@ -150,21 +150,21 @@ const ALL_TOOLS = [
         name: "query-data",
         definition: {
             description:
-                "Herramienta CANONICA para (a) descubrir dispositivos de una coleccion junto con sus metadatos y " +
+                "Herramienta CANÓNICA para (a) descubrir dispositivos de una colección junto con sus metadatos y " +
                 "(b) consultar lecturas CRUDAS individuales (timestamp, valor, unidad). " +
-                "USAR cuando el usuario quiera: saber que dispositivos/sensores/contadores existen, " +
-                "descubrir los contadores o sensores de un edificio, conocer la ubicacion de un dispositivo, " +
-                "obtener alias, geolocalizacion, codigo SIGUA, organizacion u otros metadatos contextuales, " +
-                "filtrar dispositivos por edificio/SIGUA/organizacion, o ver valores exactos sin procesar. " +
-                "Para DESCUBRIR dispositivos de una coleccion o de un edificio, hazlo en UNA SOLA llamada con " +
+                "USAR cuando el usuario quiera: saber qué dispositivos/sensores/contadores existen, " +
+                "descubrir los contadores o sensores de un edificio, conocer la ubicación de un dispositivo, " +
+                "obtener alias, geolocalización, código SIGUA, organización u otros metadatos contextuales, " +
+                "filtrar dispositivos por edificio/SIGUA/organización, o ver valores exactos sin procesar. " +
+                "Para DESCUBRIR dispositivos de una colección o de un edificio, hazlo en UNA SOLA llamada con " +
                 "include_metadata=true y un limit alto (p. ej. 800): devuelve TODOS los dispositivos con sus " +
-                "metadatos completos en una sola peticion; despues filtra in-memory por SIGUA/alias. " +
-                "NO encadenes multiples llamadas a get-device-details para esto. " +
-                "NO USAR para estadisticas (media, max, min, suma) ni para evolucion horaria/diaria ni tendencias: " +
-                "para eso usar query-aggregation, que es mas eficiente. " +
-                "Ejemplo VALIDO: '¿que contadores electricos tiene el Aulario II y donde estan?' -> " +
+                "metadatos completos en una sola petición; después filtra in-memory por SIGUA/alias. " +
+                "NO encadenes múltiples llamadas a get-device-details para esto. " +
+                "NO USAR para estadísticas (media, máx, mín, suma) ni para evolución horaria/diaria ni tendencias: " +
+                "para eso usar query-aggregation, que es más eficiente. " +
+                "Ejemplo VÁLIDO: '¿qué contadores eléctricos tiene el Aulario II y dónde están?' -> " +
                 "query-data(collection='energy', limit=800, include_metadata=true). " +
-                "Ejemplo INVALIDO: 'consumo medio diario del edificio' -> usar query-aggregation.",
+                "Ejemplo INVÁLIDO: 'consumo medio diario del edificio' -> usar query-aggregation.",
             inputSchema: z.object({
                 collection: collectionEnum,
                 device_id: z.string().optional().describe(
@@ -203,12 +203,12 @@ const ALL_TOOLS = [
         definition: {
             description:
                 "Consulta datos AGREGADOS de mediciones agrupados por intervalos de tiempo. " +
-                "Aplica funciones estadisticas (media, minimo, maximo, suma, cuenta, ultimo valor) " +
-                "sobre los datos agrupados en intervalos configurables (por hora, por dia, etc.). " +
-                "Usar cuando el usuario necesita: consumo medio, evolucion horaria/diaria, " +
-                "valores maximos/minimos en un periodo, tendencias, comparativas entre periodos, " +
-                "resumenes de consumo, informes energeticos. " +
-                "Mas eficiente que query-data para analisis y resumenes.",
+                "Aplica funciones estadísticas (media, mínimo, máximo, suma, cuenta, último valor) " +
+                "sobre los datos agrupados en intervalos configurables (por hora, por día, etc.). " +
+                "Usar cuando el usuario necesita: consumo medio, evolución horaria/diaria, " +
+                "valores máximos/mínimos en un período, tendencias, comparativas entre períodos, " +
+                "resúmenes de consumo, informes energéticos. " +
+                "Más eficiente que query-data para análisis y resúmenes.",
             inputSchema: z.object({
                 collection: collectionEnum,
                 device_id: z.string().optional().describe(

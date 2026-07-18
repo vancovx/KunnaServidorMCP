@@ -90,14 +90,14 @@ export function registerPrompts(server) {
 
                                 ## 4. Análisis horario y patrones
                                 - Describe el patrón horario típico del edificio.
-                                - Compara días laborables vs fines de semana si los datos lo permiten.
+                                - Compara días laborables vs. fines de semana si los datos lo permiten.
 
                                 ## 5. Detección de anomalías
                                 Aplica estos criterios:
                                 a) **Picos extremos**: cualquier valor horario que supere en más de 2 desviaciones estándar la media horaria del mes.
                                 b) **Consumo nocturno inusual**: consumo entre las 00:00-06:00 que supere el 30% del consumo medio diurno.
                                 c) **Días atípicos**: días cuyo consumo total se desvíe más de 1.5 desviaciones estándar de la media diaria.
-                                d) **Caídas a cero**: periodos donde el consumo cae a 0 durante horas laborables.
+                                d) **Caídas a cero**: períodos donde el consumo cae a 0 durante horas laborables.
 
                                 Para cada anomalía indica: fecha/hora, contador afectado, valor registrado, valor esperado y tipo de anomalía.
                                 Si no se detectan anomalías, indícalo explícitamente.
@@ -191,7 +191,7 @@ export function registerPrompts(server) {
 
                                 ## 1. Datos del edificio
                                 - Código SIGUA, nombre del edificio, número de contadores de agua encontrados.
-                                - Lista de contadores con su alias y ubicación.
+                                - Lista de contadores con su alias and ubicación.
 
                                 ## 2. Resumen de consumo mensual (litros / m³)
                                 - Consumo total estimado del edificio.
@@ -201,11 +201,11 @@ export function registerPrompts(server) {
 
                                 ## 3. Evolución diaria
                                 - Describe la tendencia del consumo a lo largo del mes.
-                                - Identifica patrones (ej: bajada drástica en fines de semana o periodos vacacionales).
+                                - Identifica patrones (ej: bajada drástica en fines de semana o períodos vacacionales).
 
                                 ## 4. Análisis horario
                                 - Describe el patrón horario típico (mayor consumo en horarios de cambio de clase, hora del café, etc.).
-                                - Compara días laborables vs fines de semana.
+                                - Compara días laborables vs. fines de semana.
 
                                 ## 5. Detección de anomalías y posibles fugas
                                 Aplica estos criterios:
@@ -213,7 +213,7 @@ export function registerPrompts(server) {
                                 b) **Caudal base elevado**: si el mínimo horario nunca baja por debajo de un cierto valor durante el mes, sospecha de fuga estructural.
                                 c) **Picos extremos**: cualquier valor horario que supere en más de 2 desviaciones estándar la media.
                                 d) **Días atípicos**: días cuyo consumo total se desvíe más de 1.5 desviaciones estándar de la media diaria.
-                                e) **Caídas a cero**: periodos donde el consumo cae a 0 durante horas con actividad esperada (puede indicar contador averiado o corte).
+                                e) **Caídas a cero**: períodos donde el consumo cae a 0 durante horas con actividad esperada (puede indicar contador averiado o corte).
 
                                 Para cada anomalía indica: fecha/hora, contador afectado, valor registrado, valor esperado y tipo de anomalía.
                                 Si no se detectan anomalías, indícalo explícitamente.
@@ -238,9 +238,9 @@ export function registerPrompts(server) {
     server.registerPrompt(
         "informe-confort-aula",
         {
-            description: "Analiza la calidad ambiental interior de un aula, despacho o sala (CO2, temperatura, humedad y VOC) en un periodo concreto. Evalúa el confort según normativa, detecta problemas de ventilación o climatización y sugiere mejoras. Usa sensores de la colección 'roomsensors'.",
+            description: "Analiza la calidad ambiental interior de un aula, despacho o sala (CO2, temperatura, humedad y VOC) en un período concreto. Evalúa el confort según normativa, detecta problemas de ventilación o climatización y sugiere mejoras. Usa sensores de la colección 'roomsensors'.",
             inputSchema: z.object({
-                aula: z.string().describe("Identificador del aula o sala. Puede ser un código (ej: 'A1/0M01'), un nombre ('aula magna', 'aula 12 politecnica'), una descripción ('despachos de informática') o un edificio entero. El sistema usará búsqueda semántica sobre edificios y filtrado de dispositivos para localizarla."),
+                aula: z.string().describe("Identificador del aula o sala. Puede ser un código (ej: 'A1/0M01'), un nombre ('aula magna', 'aula 12 politécnica'), una descripción ('despachos de informática') o un edificio entero. El sistema usará búsqueda semántica sobre edificios y filtrado de dispositivos para localizarla."),
                 desde: z.string().describe("Fecha inicial del análisis en formato YYYY-MM-DD."),
                 hasta: z.string().describe("Fecha final del análisis en formato YYYY-MM-DD.")
             })
@@ -308,9 +308,9 @@ export function registerPrompts(server) {
                                 - Edificio (código SIGUA y nombre).
                                 - Ubicación exacta dentro del edificio (planta, sala).
                                 - Sensores utilizados con su alias.
-                                - Periodo analizado y número total de horas con datos.
+                                - Período analizado y número total de horas con datos.
 
-                                ## 2. Resumen ambiental del periodo
+                                ## 2. Resumen ambiental del período
                                 Tabla con: magnitud · media · máximo · mínimo · unidad
                                 - CO2 (ppm)
                                 - Temperatura interior (°C)
@@ -345,13 +345,13 @@ export function registerPrompts(server) {
 
                                 ## 4. Patrones horarios y diarios
                                 - Describe cómo evolucionan las magnitudes a lo largo del día (ej: subida de CO2 durante clases, picos a media mañana).
-                                - Diferencia días laborables vs fines de semana.
+                                - Diferencia días laborables vs. fines de semana.
                                 - Identifica las franjas horarias más críticas.
 
                                 ## 5. Eventos relevantes
                                 a) **Picos de CO2**: momentos en que se supera 1400 ppm. Indica día, hora y duración.
-                                b) **Disconfort térmico prolongado**: periodos de más de 2 horas con temperatura fuera del rango aceptable.
-                                c) **Humedad extrema**: periodos por debajo del 30 % o por encima del 70 %.
+                                b) **Disconfort térmico prolongado**: períodos de más de 2 horas con temperatura fuera del rango aceptable.
+                                c) **Humedad extrema**: períodos por debajo del 30 % o por encima del 70 %.
                                 d) **Posibles fallos de sensor**: valores planos (constantes) durante horas o valores físicamente imposibles.
 
                                 ## 6. Diagnóstico y recomendaciones
