@@ -1,6 +1,9 @@
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
 import pg from 'pg';
 import { readFile } from 'fs/promises';
+
+env.cacheDir = './models';
+env.allowRemoteModels = process.env.ALLOW_REMOTE_MODELS === 'true';
 
 //  Modelo singleton — se carga una sola vez en toda la vida del proceso
 let embedder = null;

@@ -186,6 +186,25 @@ export async function startMcpServer() {
         process.exit(1);
     }
 
+    // Verificar conectividad con la BD.
+    try {
+        const total = (await EmbeddingsService.getAllBuildings()).length;
+        logger.info({ total }, "Conexion a BD realizada correctamente.");
+    } catch (err) {
+        logger.fatal({ err: err.message }, "No se puede conectar a PostgreSQL");
+        process.exit(1);
+    }
+    
+    // Precargar el modelo de embeddings (warmup)
+    try {
+        const start = Date.now();
+        await EmbeddingsService.generate("warmup");
+        logger.info({ ms: Date.now() - start }, "Modelo de embeddings cargado correctamente");
+    } catch (err) {
+        logger.fatal({ err: err.message }, "No se puede cargar el modelo de embeddings");
+        process.exit(1);
+    }
+
     const app = express();
     app.set("trust proxy", 1);
 

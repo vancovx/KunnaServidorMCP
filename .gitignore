@@ -12,3 +12,4 @@ examples/
 
 # Environment variable files
 .env
+models
